@@ -4,18 +4,25 @@
 # =============================================================================
 #
 # 使い方:
-#   python publish_novel.py "novels/異世界転移したけど、最初の村が滅んでた件。.txt"
-#   python publish_novel.py "novels/小説.txt" --title "第1話 タイトル" --voice fable
-#   python publish_novel.py "novels/小説.txt" --description "エピソードの説明文"
+#   python publish_novel.py            (novelsフォルダ内の全ファイルを処理)
+#   python publish_novel.py "novels/小説.txt"
+#   python publish_novel.py --feed-only --mp3 "mp3/既存.mp3" --title "タイトル"
 #
 # 初回セットアップ:
 #   1. pip install openai pydub pyyaml python-dotenv podgen mutagen
 #   2. config.yaml を編集（番組情報を設定）
 #   3. .env にAPIキーを設定
 #
+# 🚀 Core Ultra 285 最適化:
+#   - 並列処理によるAPIリクエスト高速化 (ThreadPoolExecutor)
+#   - マルチスレッドでの音声生成
+#
+# =============================================================================
 
 import os
 import sys
+import shutil
+import subprocess
 
 # Windows cp932 コンソールで絵文字・Unicode文字を表示するための対策
 if sys.platform == "win32":
@@ -28,6 +35,7 @@ import tempfile
 import hashlib
 from pathlib import Path
 from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # =============================================================================
 # 設定読み込み
@@ -46,6 +54,12 @@ def load_config():
         with open(config_path, 'r', encoding='utf-8') as f:
             config = yaml.safe_load(f)
         print(f"✅ config.yaml を読み込みました")
+        
+        # completedディレクトリの作成
+        novels_dir = Path(__file__).parent / "novels"
+        completed_dir = novels_dir / "completed"
+        completed_dir.mkdir(parents=True, exist_ok=True)
+        
         return config
     except ImportError:
         print("⚠️  pyyaml がインストールされていません。デフォルト設定を使用します。")
@@ -70,11 +84,11 @@ def get_default_config():
             'voice': 'fable',
             'instructions': None,
             'max_chunk_size': 4000,
-            'request_interval': 0.5,
+            'request_interval': 0.1, # 並列化のため短縮
         },
         'output': {
             'mp3_dir': 'mp3',
-            'feed_dir': 'feed',
+            'feed_dir': 'docs', # config.yamlに合わせる
             'feed_filename': 'feed.xml',
         },
         'reading_corrections': {}
@@ -135,6 +149,63 @@ def format_duration_itunes(seconds):
     minutes = int((seconds % 3600) // 60)
     secs = int(seconds % 60)
     return f"{hours:02d}:{minutes:02d}:{secs:02d}"
+
+def git_commit_push(message="Update podcast feed"):
+    """Git commit and push"""
+    try:
+        print("\n🚀 GitHubへアップロード中...")
+        # ステージング
+        subprocess.run(["git", "add", "."], check=True)
+        # コミット (変更がない場合はエラーになるのでtry-catchで無視しても良いが、check=Falseにする手もある)
+        result = subprocess.run(["git", "commit", "-m", message], capture_output=True, text=True)
+        if result.returncode != 0:
+            if "nothing to commit" in result.stdout:
+                print("ℹ️ コミットする変更はありませんでした")
+                return
+            else:
+                print(f"⚠️ Git Commit Error: {result.stderr}")
+                return
+
+        subprocess.run(["git", "push"], check=True)
+        print("✅ GitHubへのプッシュ完了")
+    except subprocess.CalledProcessError as e:
+        print(f"⚠️ Git操作中にエラーが発生しました: {e}")
+    except FileNotFoundError:
+        print("⚠️ gitコマンドが見つかりません")
+    except Exception as e:
+         print(f"⚠️ Git操作失敗: {e}")
+
+def move_to_completed(file_path):
+    """処理済みファイルをcompletedフォルダに移動"""
+    source = Path(file_path)
+    # publish_novel.py と同じ階層の novels/completed を想定
+    completed_dir = Path(__file__).parent / "novels" / "completed"
+    completed_dir.mkdir(parents=True, exist_ok=True)
+    
+    target = completed_dir / source.name
+    
+    # 同名のYAMLファイルも移動
+    yaml_source = source.with_suffix('.yaml')
+    yaml_target = completed_dir / yaml_source.name
+    
+    try:
+        # 既に存在する場合は上書き移動(shutil.moveは上書き動作するが、WindowsではDestination existエラーになる場合があるためunlink)
+        if target.exists():
+            target.unlink()
+        
+        shutil.move(str(source), str(target))
+        print(f"📦 テキストファイルを移動: {target.name}")
+
+        if yaml_source.exists():
+            if yaml_target.exists():
+                yaml_target.unlink()
+            shutil.move(str(yaml_source), str(yaml_target))
+            print(f"📦 YAMLファイルを移動: {yaml_target.name}")
+            
+        return True
+    except Exception as e:
+        print(f"❌ ファイル移動エラー: {e}")
+        return False
 
 # =============================================================================
 # 読み替え辞書
@@ -213,20 +284,42 @@ def split_text_into_chunks(text, max_size=4000):
 # MP3生成
 # =============================================================================
 
+def generate_chunk(client, chunk, i, tts_model, tts_voice, tts_instructions):
+    """並列処理用のチャンク生成関数"""
+    temp_fd, temp_path = tempfile.mkstemp(suffix=f"_chunk_{i:03d}.mp3")
+    os.close(temp_fd)
+    
+    try:
+        params = {
+            "model": tts_model,
+            "voice": tts_voice,
+            "input": chunk,
+            "response_format": "mp3",
+        }
+        if tts_instructions:
+            params["instructions"] = tts_instructions
+        
+        # OpenAI Client is generic, but calls are synchronous. 
+        # ThreadPoolExecutor makes them concurrent.
+        response = client.audio.speech.create(**params)
+        response.stream_to_file(temp_path)
+        return i, temp_path, None
+    except Exception as e:
+        return i, None, str(e)
+
+
 def generate_mp3(input_file, config, voice_override=None, model_override=None):
-    """テキストファイルをMP3に変換"""
+    """テキストファイルをMP3に変換（並列処理版）"""
     
     # OpenAI APIキー確認
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
         print("❌ 環境変数 OPENAI_API_KEY が設定されていません")
-        print("   .env ファイルに OPENAI_API_KEY=sk-xxxxx を記入してください")
         sys.exit(1)
     
     try:
         from openai import OpenAI
         client = OpenAI(api_key=api_key)
-        print("✅ OpenAI クライアント初期化完了")
     except ImportError:
         print("❌ openai ライブラリが必要です: pip install openai")
         sys.exit(1)
@@ -243,7 +336,6 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
     tts_voice = voice_override or tts_config.get('voice', 'fable')
     tts_instructions = tts_config.get('instructions', None)
     max_chunk_size = tts_config.get('max_chunk_size', 4000)
-    request_interval = tts_config.get('request_interval', 0.5)
     
     # gpt-4o-mini-tts の場合のチャンクサイズ調整
     if tts_model == "gpt-4o-mini-tts":
@@ -264,11 +356,11 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
             continue
         except FileNotFoundError:
             print(f"❌ ファイルが見つかりません: {input_file}")
-            sys.exit(1)
+            return None, 0
     
     if novel_text is None:
         print("❌ エンコーディング検出失敗")
-        sys.exit(1)
+        return None, 0
     
     # 前処理
     novel_text = novel_text.strip()
@@ -282,9 +374,6 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
         corrections.update(config_corrections)
     
     print("📝 読み替え辞書を適用中...")
-    for word, reading in corrections.items():
-        if word in novel_text:
-            print(f"   - {word} → {reading}")
     novel_text = apply_replacements(novel_text, corrections)
     
     # テキスト分割
@@ -297,6 +386,7 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
         f"   チャンク数: {len(chunks)}",
         f"   モデル: {tts_model}",
         f"   音声: {tts_voice}",
+        "   処理: 並列化 (Core Ultra 285 Speed Boost)", 
     ])
     
     # 出力パス
@@ -311,59 +401,46 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
     
     # 音声生成
     print("\n" + "=" * 60)
-    print("🎙️ 音声生成を開始します")
+    print("🎙️ Speed Boost 音声生成を開始します (並列処理)")
     print("=" * 60)
     
-    temp_dir = tempfile.mkdtemp()
-    audio_files = []
-    total_audio_size = 0
+    audio_files_map = {}
+    completed_chunks = 0
     start_time = time.time()
-    processed_chars = 0
     
-    for i, chunk in enumerate(chunks):
-        chunk_start = time.time()
+    # 並列処理: ThreadPoolExecutorを使用
+    # APIリクエストはIOバウンドだが、多数の同時接続による高速化を図る
+    # 同時接続数5 (OpenAIのレート制限考慮)
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(generate_chunk, client, chunk, i, tts_model, tts_voice, tts_instructions): i for i, chunk in enumerate(chunks)}
         
-        try:
-            chunk_path = os.path.join(temp_dir, f"chunk_{i+1:03d}.mp3")
+        for future in as_completed(futures):
+            i, path, error = future.result()
+            if error:
+                print(f"❌ チャンク {i} エラー: {error}")
+                # エラー時は生成済みのファイルを消して終了
+                for f in audio_files_map.values():
+                    try: os.remove(f)
+                    except: pass
+                return None, 0
             
-            params = {
-                "model": tts_model,
-                "voice": tts_voice,
-                "input": chunk,
-                "response_format": "mp3",
-            }
-            if tts_instructions:
-                params["instructions"] = tts_instructions
-            
-            response = client.audio.speech.create(**params)
-            response.stream_to_file(chunk_path)
-            
-            file_size = os.path.getsize(chunk_path)
-            audio_files.append(chunk_path)
-            total_audio_size += file_size
-            
-            chunk_time = time.time() - chunk_start
-            processed_chars += len(chunk)
+            audio_files_map[i] = path
+            completed_chunks += 1
             
             # 進捗表示
-            pct = processed_chars / total_chars * 100
-            bar_len = 20
-            filled = int(bar_len * processed_chars // total_chars)
-            bar = "█" * filled + "░" * (bar_len - filled)
-            size_kb = file_size / 1024
-            print(f"  [{i+1}/{len(chunks)}] {len(chunk):,}文字 | {size_kb:.0f}KB | {chunk_time:.1f}s | {bar} {pct:.0f}%")
-            
-            if i < len(chunks) - 1:
-                time.sleep(request_interval)
-                
-        except Exception as e:
-            print(f"\n❌ チャンク {i+1} でエラー: {str(e)}")
-            sys.exit(1)
+            pct = completed_chunks / len(chunks) * 100
+            bar = "█" * int(20 * pct / 100) + "░" * (20 - int(20 * pct / 100))
+            print(f"\r🚀 生成中: [{completed_chunks}/{len(chunks)}] {bar} {pct:.0f}%", end='', flush=True)
+
+    print("\n")
+    
+    # 順番通りに取得
+    audio_files = [audio_files_map[i] for i in range(len(chunks))]
     
     total_time = time.time() - start_time
     
     # 結合
-    print("\n🔗 音声ファイルを結合中...")
+    print("🔗 音声ファイルを結合中...")
     combined = AudioSegment.from_mp3(audio_files[0])
     for audio_file in audio_files[1:]:
         combined += AudioSegment.from_mp3(audio_file)
@@ -385,7 +462,7 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
         f"   ファイル: {output_filename}",
         f"   サイズ: {final_size:.2f} MB",
         f"   再生時間: {format_time(duration_sec)}",
-        f"   処理時間: {format_time(total_time)}",
+        f"   処理時間: {format_time(total_time)} (並列処理)",
     ])
     
     return str(output_path), duration_sec
@@ -400,7 +477,7 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
     output_config = config.get('output', {})
     podcast_config = config.get('podcast', {})
     
-    feed_dir = Path(__file__).parent / output_config.get('feed_dir', 'feed')
+    feed_dir = Path(__file__).parent / output_config.get('feed_dir', 'docs')
     feed_dir.mkdir(parents=True, exist_ok=True)
     
     feed_path = feed_dir / output_config.get('feed_filename', 'feed.xml')
@@ -426,9 +503,12 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
         with open(episodes_json, 'r', encoding='utf-8') as f:
             episodes = json.load(f)
     
-    # 新しいエピソード
+    # 新しいエピソード番号
     if episode_number is None:
-        episode_number = len(episodes) + 1
+        last_num = 0
+        if episodes:
+            last_num = max(e.get('number', 0) for e in episodes)
+        episode_number = last_num + 1
     
     new_episode = {
         "number": episode_number,
@@ -480,6 +560,16 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
     if cover_art:
         cover_xml = f'\n    <itunes:image href="{base_url}/{cover_art}"/>'
     
+    channel_email = podcast_config.get('email', '')
+
+    owner_xml = ""
+    if channel_email:
+        owner_xml = f"""
+    <itunes:owner>
+      <itunes:name>{_xml_escape(channel_author)}</itunes:name>
+      <itunes:email>{channel_email}</itunes:email>
+    </itunes:owner>"""
+
     feed_xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <rss version="2.0" 
      xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
@@ -489,7 +579,7 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
     <title>{_xml_escape(channel_title)}</title>
     <description>{_xml_escape(channel_desc)}</description>
     <language>{channel_lang}</language>
-    <itunes:author>{_xml_escape(channel_author)}</itunes:author>
+    <itunes:author>{_xml_escape(channel_author)}</itunes:author>{owner_xml}
     <itunes:category text="{channel_category}">
       <itunes:category text="{channel_subcategory}"/>
     </itunes:category>
@@ -525,28 +615,101 @@ def _xml_escape(text):
 # メイン処理
 # =============================================================================
 
+def process_file(args, input_file, config, overrides=None):
+    """単一ファイルの処理"""
+    if overrides is None:
+        overrides = {}
+
+    # カテゴリーに基づく音声の自動選択
+    category = overrides.get('category', '')
+    voice_final = args.voice
+    
+    if not voice_final:
+        # YAMLでの指定を優先
+        voice_final = overrides.get('voice')
+        if not voice_final and category:
+            mapping = config.get('tts', {}).get('category_voices', {})
+            for kw, v in mapping.items():
+                if kw in category:
+                    voice_final = v
+                    print(f"🎭 カテゴリー '{category}' に基づき音声 '{v}' を選択しました")
+                    break
+    
+    # 個別辞書の適用
+    extra_corr = overrides.get('corrections', {})
+    if extra_corr:
+        if 'reading_corrections' not in config: config['reading_corrections'] = {}
+        config['reading_corrections'].update(extra_corr)
+        print(f"📖 作品別の読み替え辞書（{len(extra_corr)}件）を適用しました")
+
+    # STEP 1: MP3生成
+    mp3_path = None
+    if not args.feed_only:
+        print("\n" + "─" * 60)
+        print(f"📖 STEP 1: テキスト → MP3 変換: {Path(input_file).name}")
+        print("─" * 60)
+        
+        mp3_path, duration = generate_mp3(
+            input_file,
+            config,
+            voice_override=voice_final,
+            model_override=args.model,
+        )
+        if not mp3_path: return False
+    else:
+        # feed_onlyの場合、mp3_pathが必要
+        mp3_path = args.mp3
+        if not mp3_path:
+             print("❌ --feed-only の場合は --mp3 で既存MP3ファイルを指定してください")
+             return False
+
+    # STEP 2: RSSフィード生成
+    if not args.mp3_only:
+        print("\n" + "─" * 60)
+        print("📡 STEP 2: RSSフィード生成")
+        print("─" * 60)
+        
+        # エピソードタイトル
+        episode_title = overrides.get('title')
+        if not episode_title:
+             if args.title:
+                 episode_title = args.title
+             else:
+                 episode_title = Path(input_file).stem
+        
+        # エピソード説明
+        episode_desc = args.description if args.description else f"「{episode_title}」の音声版をお届けします。"
+        
+        generate_rss_feed(
+            config,
+            mp3_path,
+            episode_title=episode_title,
+            episode_description=episode_desc,
+            episode_number=args.episode,
+        )
+    
+    # ファイル移動
+    if not args.feed_only and input_file:
+         move_to_completed(input_file)
+    
+    return True
+
 def main():
     parser = argparse.ArgumentParser(
         description="📚 音声小説 → Spotify 自動配信ツール",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-使用例:
-  python publish_novel.py "novels/小説.txt"
-  python publish_novel.py "novels/小説.txt" --title "第1話" --voice fable
-  python publish_novel.py "novels/小説.txt" --mp3-only
-  python publish_novel.py --feed-only --mp3 "mp3/既存.mp3" --title "第2話"
-        """
     )
     
-    parser.add_argument("input", nargs="?", help="入力テキストファイルのパス")
-    parser.add_argument("--title", "-t", help="エピソードタイトル（デフォルト: ファイル名から自動生成）")
-    parser.add_argument("--description", "-d", help="エピソードの説明文", default="")
-    parser.add_argument("--voice", "-v", help="音声タイプ (alloy, ash, ballad, cedar, coral, echo, fable, marin, nova, onyx, sage, shimmer, verse)")
-    parser.add_argument("--model", "-m", help="TTSモデル (tts-1, tts-1-hd, gpt-4o-mini-tts)")
+    parser.add_argument("input", nargs="?", help="入力テキストファイルのパス (指定なしの場合はnovelsフォルダ内の全txtを処理)")
+    parser.add_argument("--title", "-t", help="エピソードタイトル")
+    parser.add_argument("--description", "-d", help="エピソードの説明文")
+    parser.add_argument("--voice", "-v", help="音声タイプ")
+    parser.add_argument("--model", "-m", help="TTSモデル")
     parser.add_argument("--episode", "-e", type=int, help="エピソード番号")
-    parser.add_argument("--mp3-only", action="store_true", help="MP3生成のみ（RSSフィード生成をスキップ）")
-    parser.add_argument("--feed-only", action="store_true", help="RSSフィード生成のみ（既存MP3を使用）")
-    parser.add_argument("--mp3", help="（--feed-only 時）既存MP3ファイルのパス")
+    parser.add_argument("--mp3-only", action="store_true", help="MP3生成のみ")
+    parser.add_argument("--feed-only", action="store_true", help="RSSフィード生成のみ")
+    parser.add_argument("--mp3", help="既存MP3ファイルのパス")
+    parser.add_argument("--no-push", action="store_true", help="GitHubへのプッシュをスキップ")
     
     args = parser.parse_args()
     
@@ -559,95 +722,63 @@ def main():
     load_env()
     config = load_config()
     
-    # 入力チェック
-    if args.feed_only:
-        if not args.mp3:
-            print("❌ --feed-only の場合は --mp3 で既存MP3ファイルを指定してください")
-            sys.exit(1)
-        if not args.title:
-            print("❌ --feed-only の場合は --title でエピソードタイトルを指定してください")
-            sys.exit(1)
-        mp3_path = args.mp3
-        if not os.path.exists(mp3_path):
-            print(f"❌ MP3ファイルが見つかりません: {mp3_path}")
-            sys.exit(1)
-    else:
-        if not args.input:
-            parser.print_help()
-            sys.exit(1)
+    # 処理対象ファイルのリストアップ
+    target_files = []
+    
+    if args.input:
         if not os.path.exists(args.input):
-            print(f"❌ 入テキストファイルが見つかりません: {args.input}")
+            print(f"❌ ファイルが見つかりません: {args.input}")
             sys.exit(1)
-    
-    # STEP 1: MP3生成
-    if not args.feed_only:
-        print("\n" + "─" * 60)
-        print("📖 STEP 1: テキスト → MP3 変換")
-        print("─" * 60)
-        
-        mp3_path, duration = generate_mp3(
-            args.input,
-            config,
-            voice_override=args.voice,
-            model_override=args.model,
-        )
-    
-    # STEP 2: RSSフィード生成
-    if not args.mp3_only:
-        print("\n" + "─" * 60)
-        print("📡 STEP 2: RSSフィード生成")
-        print("─" * 60)
-        
-        # エピソードタイトル
-        if args.title:
-            episode_title = args.title
-        elif args.input:
-            episode_title = Path(args.input).stem
-        else:
-            episode_title = Path(mp3_path).stem
-        
-        # エピソード説明
-        episode_desc = args.description if args.description else f"「{episode_title}」の音声版をお届けします。"
-        
-        feed_path = generate_rss_feed(
-            config,
-            mp3_path,
-            episode_title=episode_title,
-            episode_description=episode_desc,
-            episode_number=args.episode,
-        )
-        
-        # 次のステップの案内
-        podcast_config = config.get('podcast', {})
-        base_url = podcast_config.get('base_url', '')
-        
-        print("\n" + "=" * 60)
-        print("🎉 すべての処理が完了しました！")
-        print("=" * 60)
-        
-        if not base_url or base_url == 'YOUR_HOSTING_URL_HERE':
-            print_status_box([
-                "📋 次のステップ（初回のみ）",
-                "",
-                "1. feedフォルダの中身をホスティングサービスにアップ",
-                "   （RSS.com, GitHub Pages, Cloudflare R2 等）",
-                "",
-                "2. config.yaml の base_url をホスティングURLに更新",
-                "",
-                "3. Spotify for Podcasters にRSSフィードURLを登録",
-                "   https://podcasters.spotify.com",
-                "",
-                "※ 2回目以降はfeedフォルダを再アップするだけでOK！",
-            ], width=58)
-        else:
-            print_status_box([
-                "✅ 配信準備完了！",
-                f"   feedフォルダをホスティング先にアップしてください",
-                f"   Spotifyが自動巡回して反映されます（数時間〜24h）",
-            ])
+        target_files.append(args.input)
+    elif args.feed_only:
+        # feed_onlyの場合はファイル処理なし（引数依存）
+        target_files = []
     else:
-        print("\n🎉 MP3生成が完了しました！")
-        print(f"   出力: {mp3_path}")
+        # novelsフォルダ内のtxtファイルを検索
+        novels_dir = Path(__file__).parent / "novels"
+        if novels_dir.exists():
+            target_files = list(novels_dir.glob("*.txt"))
+            # completedフォルダは除外（globは再帰しないのでOK）
+            print(f"🔎 novelsフォルダ内の小説を検索中... {len(target_files)}件ヒット")
+        else:
+             print("❌ novelsフォルダが見つかりません")
+             sys.exit(1)
+
+    if not target_files and not args.feed_only:
+        print("⚠️ 処理対象のファイルがありません。")
+        sys.exit(0)
+
+    # 処理実行
+    processed_count = 0
+    for input_file in target_files:
+        print(f"\n🚀 処理開始: {input_file}")
+        
+        # 作品情報の読み込み (.yaml)
+        overrides = {}
+        info_path = Path(input_file).with_suffix('.yaml')
+        if info_path.exists():
+            try:
+                import yaml
+                with open(info_path, 'r', encoding='utf-8') as f:
+                    overrides = yaml.safe_load(f) or {}
+                print(f"✅ 作品情報を読み込みました: {info_path.name}")
+            except Exception as e:
+                print(f"⚠️  作品情報の読み込み失敗: {e}")
+        
+        success = process_file(args, input_file, config, overrides)
+        if success:
+            processed_count += 1
+            
+    # RSSフィード生成のみの場合
+    if args.feed_only:
+         process_file(args, None, config, {})
+         processed_count = 1
+
+    # Git Push
+    if processed_count > 0 and not args.no_push:
+        git_commit_push(message=f"Update podcast: processed {processed_count} episodes")
+    
+    print("\n🎉 全処理完了！")
 
 if __name__ == "__main__":
     main()

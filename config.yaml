@@ -7,9 +7,10 @@
 # Spotify for Podcasters に表示される情報
 # ------------------------------------------------------------------------------
 podcast:
-  title: "異世界転移したけど、最初の村が滅んでた件。"
-  author: "制作チーム"                    # ← 作者名・チーム名を入力
-  description: "異世界ファンタジー音声小説。テキストから自動生成されたオーディオノベルをお届けします。"
+  title: "聞くラノベ ～桜木ひより～"
+  author: "桜木ひより"                    # ← 作者名・チーム名を入力
+  email: "n.ataka.tom@gmail.com"         # ← Spotify登録用のメールアドレス（必須）
+  description: "桜木ひよりの小説を音声でお届けします。小説家になろうにて連載中。"
   language: "ja"
   category: "Arts"
   subcategory: "Books"
@@ -29,6 +30,15 @@ podcast:
 tts:
   model: "tts-1"                         # tts-1 | tts-1-hd | gpt-4o-mini-tts
   voice: "fable"                         # 📖 物語の朗読向き
+  
+  # カテゴリーに含まれるキーワードで音声を自動選択
+  category_voices:
+    "恋愛": "shimmer"      # 女性的で優しい声
+    "ハイファンタジー": "onyx" # 落ち着いた男性的な声
+    "ローファンタジー": "nova" # 明るく聴きやすい声
+    "コメディー": "alloy"    # 中性的で汎用的な声
+    "ヒューマンドラマ": "fable" # 表現力豊かな声
+    "default": "fable"
   # 使用可能な音声:
   #   alloy    - 中性的でバランスの取れた声
   #   ash      - 落ち着いた知的な声

@@ -4,13 +4,13 @@
      xmlns:content="http://purl.org/rss/1.0/modules/content/"
      xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>異世界転移したけど、最初の村が滅んでた件。</title>
-    <description>異世界ファンタジー音声小説。テキストから自動生成されたオーディオノベルをお届けします。</description>
+    <title>聞くラノベ ～桜木ひより～</title>
+    <description>桜木ひよりの小説を音声でお届けします。小説家になろうにて連載中。</description>
     <language>ja</language>
-    <itunes:author>制作チーム</itunes:author>
+    <itunes:author>桜木ひより</itunes:author>
     <itunes:owner>
-        <itunes:name>制作チーム</itunes:name>
-        <itunes:email>n.ataka.tom@gmail.com</itunes:email>
+      <itunes:name>桜木ひより</itunes:name>
+      <itunes:email>n.ataka.tom@gmail.com</itunes:email>
     </itunes:owner>
     <itunes:category text="Arts">
       <itunes:category text="Books"/>
@@ -21,22 +21,42 @@
     <atom:link href="https://Nozo-tom.github.io/audio-novel-podcast/feed.xml" rel="self" type="application/rss+xml"/>
 
     <item>
-      <title>第1話 異世界転移</title>
-      <description>「第1話 異世界転移」の音声版をお届けします。</description>
-      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/異世界転移したけど、最初の村が滅んでた件。_20260210_144806.mp3" length="171500" type="audio/mpeg"/>
-      <guid isPermaLink="false">05b93be6ee501ef62910d1ba76eb6855</guid>
-      <pubDate>Tue, 10 Feb 2026 14:48:19 +0900</pubDate>
-      <itunes:duration>00:00:42</itunes:duration>
+      <title>俺が憧れの氷室さんの秘密を知ったら異能力事件に巻き込まれた件</title>
+      <description>「俺が憧れの氷室さんの秘密を知ったら異能力事件に巻き込まれた件」の音声版をお届けします。</description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/20250913_俺が憧れの氷室さんの秘密を知ったら異能力事件に巻き込まれた件_20260210_171427.mp3" length="5626988" type="audio/mpeg"/>
+      <guid isPermaLink="false">97ac9cb083e15312f71b8d1636afc619</guid>
+      <pubDate>Tue, 10 Feb 2026 17:16:36 +0900</pubDate>
+      <itunes:duration>00:23:26</itunes:duration>
+      <itunes:episode>4</itunes:episode>
+      <itunes:explicit>false</itunes:explicit>
+    </item>
+    <item>
+      <title>悪役令嬢に転生したので破滅フラグを回避しようと思ったら、原作主人公が思ってたより策略家だった件</title>
+      <description>「悪役令嬢に転生したので破滅フラグを回避しようと思ったら、原作主人公が思ってたより策略家だった件」の音声版をお届けします。</description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/20250912_悪役令嬢に転生したので破滅フラグを回避しようと思ったら、原作_20260210_171210.mp3" length="9003308" type="audio/mpeg"/>
+      <guid isPermaLink="false">cd51c16cc895ecf9bc9b9c759d7f5643</guid>
+      <pubDate>Tue, 10 Feb 2026 17:14:27 +0900</pubDate>
+      <itunes:duration>00:37:30</itunes:duration>
+      <itunes:episode>3</itunes:episode>
+      <itunes:explicit>false</itunes:explicit>
+    </item>
+    <item>
+      <title>前世で告白できなかった幼馴染に、今度こそ想いを伝えたくて転生したら、もう一人の転生者がライバルだった件</title>
+      <description>「前世で告白できなかった幼馴染に、今度こそ想いを伝えたくて転生したら、もう一人の転生者がライバルだった件」の音声版をお届けします。</description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/20250910_前世で告白できなかった幼馴染に、今度こそ想いを伝えたくて転生したら、もう一人の転生者がライバルだった..._20260210_170946.mp3" length="4870988" type="audio/mpeg"/>
+      <guid isPermaLink="false">39feba8f98c1c3ac54f917da0b7020c7</guid>
+      <pubDate>Tue, 10 Feb 2026 17:12:10 +0900</pubDate>
+      <itunes:duration>00:20:17</itunes:duration>
       <itunes:episode>2</itunes:episode>
       <itunes:explicit>false</itunes:explicit>
     </item>
     <item>
-      <title>異世界転移したけど、最初の村が滅んでた件。</title>
-      <description>「異世界転移したけど、最初の村が滅んでた件。」の音声版をお届けします。</description>
-      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/異世界転移したけど、最初の村が滅んでた件。_20260210_142520.mp3" length="172844" type="audio/mpeg"/>
-      <guid isPermaLink="false">c58018eff263076660d489da3b854928</guid>
-      <pubDate>Tue, 10 Feb 2026 14:25:31 +0900</pubDate>
-      <itunes:duration>00:00:43</itunes:duration>
+      <title>前世で告白できなかった幼馴染に、今度こそ想いを伝えたくて転生したら、もう一人の転生者がライバルだった件</title>
+      <description>「前世で告白できなかった幼馴染に、今度こそ想いを伝えたくて転生したら、もう一人の転生者がライバルだった件」の音声版をお届けします。</description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/20250910_前世で告白できなかった幼馴染に、今度こそ想いを伝えたくて転生_20260210_170639.mp3" length="4871372" type="audio/mpeg"/>
+      <guid isPermaLink="false">f980760af7f10510af17c9745d1ce327</guid>
+      <pubDate>Tue, 10 Feb 2026 17:09:45 +0900</pubDate>
+      <itunes:duration>00:20:17</itunes:duration>
       <itunes:episode>1</itunes:episode>
       <itunes:explicit>false</itunes:explicit>
     </item>

@@ -1,0 +1,51 @@
+import pathlib
+
+# 正しいXMLの中身を再構築します（メールアドレスを追加）
+content = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" 
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>異世界転移したけど、最初の村が滅んでた件。</title>
+    <description>異世界ファンタジー音声小説。テキストから自動生成されたオーディオノベルをお届けします。</description>
+    <language>ja</language>
+    <itunes:author>制作チーム</itunes:author>
+    <itunes:owner>
+        <itunes:name>制作チーム</itunes:name>
+        <itunes:email>n.ataka.tom@gmail.com</itunes:email>
+    </itunes:owner>
+    <itunes:category text="Arts">
+      <itunes:category text="Books"/>
+    </itunes:category>
+    <itunes:explicit>false</itunes:explicit>
+    <itunes:image href="https://Nozo-tom.github.io/audio-novel-podcast/cover.png"/>
+    <link></link>
+    <atom:link href="https://Nozo-tom.github.io/audio-novel-podcast/feed.xml" rel="self" type="application/rss+xml"/>
+
+    <item>
+      <title>第1話 異世界転移</title>
+      <description>「第1話 異世界転移」の音声版をお届けします。</description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/異世界転移したけど、最初の村が滅んでた件。_20260210_144806.mp3" length="171500" type="audio/mpeg"/>
+      <guid isPermaLink="false">05b93be6ee501ef62910d1ba76eb6855</guid>
+      <pubDate>Tue, 10 Feb 2026 14:48:19 +0900</pubDate>
+      <itunes:duration>00:00:42</itunes:duration>
+      <itunes:episode>2</itunes:episode>
+      <itunes:explicit>false</itunes:explicit>
+    </item>
+    <item>
+      <title>異世界転移したけど、最初の村が滅んでた件。</title>
+      <description>「異世界転移したけど、最初の村が滅んでた件。」の音声版をお届けします。</description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/異世界転移したけど、最初の村が滅んでた件。_20260210_142520.mp3" length="172844" type="audio/mpeg"/>
+      <guid isPermaLink="false">c58018eff263076660d489da3b854928</guid>
+      <pubDate>Tue, 10 Feb 2026 14:25:31 +0900</pubDate>
+      <itunes:duration>00:00:43</itunes:duration>
+      <itunes:episode>1</itunes:episode>
+      <itunes:explicit>false</itunes:explicit>
+    </item>
+  </channel>
+</rss>"""
+
+p = pathlib.Path('docs/feed.xml')
+# UTF-8 で確実に書き込みます
+p.write_text(content, encoding='utf-8')
