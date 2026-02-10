@@ -4,22 +4,22 @@
      xmlns:content="http://purl.org/rss/1.0/modules/content/"
      xmlns:atom="http://www.w3.org/2005/Atom">
   <channel>
-    <title>異世界転移したけど、最初の村が滅んでた件。</title>
-    <description>異世界ファンタジー音声小説。テキストから自動生成されたオーディオノベルをお届けします。</description>
+    <title>異世界転移したけど、最初�E村が滁E��でた件、E/title>
+    <description>異世界ファンタジー音声小説。テキストから�E動生成されたオーチE��オノ�Eルをお届けします、E/description>
     <language>ja</language>
     <itunes:author>制作チーム</itunes:author>
     <itunes:category text="Arts">
       <itunes:category text="Books"/>
     </itunes:category>
     <itunes:explicit>false</itunes:explicit>
-    <itunes:image href="YOUR_HOSTING_URL_HERE/cover.png"/>
+    <itunes:image href="https://Nozo-tom.github.io/audio-novel-podcast/cover.png"/>
     <link></link>
-    <atom:link href="YOUR_HOSTING_URL_HERE/feed.xml" rel="self" type="application/rss+xml"/>
+    <atom:link href="https://Nozo-tom.github.io/audio-novel-podcast/feed.xml" rel="self" type="application/rss+xml"/>
 
     <item>
       <title>第1話 異世界転移</title>
-      <description>「第1話 異世界転移」の音声版をお届けします。</description>
-      <enclosure url="YOUR_HOSTING_URL_HERE/異世界転移したけど、最初の村が滅んでた件。_20260210_144806.mp3" length="171500" type="audio/mpeg"/>
+      <description>「第1話 異世界転移」�E音声版をお届けします、E/description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/異世界転移したけど、最初�E村が滁E��でた件、E20260210_144806.mp3" length="171500" type="audio/mpeg"/>
       <guid isPermaLink="false">05b93be6ee501ef62910d1ba76eb6855</guid>
       <pubDate>Tue, 10 Feb 2026 14:48:19 +0900</pubDate>
       <itunes:duration>00:00:42</itunes:duration>
@@ -27,9 +27,9 @@
       <itunes:explicit>false</itunes:explicit>
     </item>
     <item>
-      <title>異世界転移したけど、最初の村が滅んでた件。</title>
-      <description>「異世界転移したけど、最初の村が滅んでた件。」の音声版をお届けします。</description>
-      <enclosure url="YOUR_HOSTING_URL_HERE/異世界転移したけど、最初の村が滅んでた件。_20260210_142520.mp3" length="172844" type="audio/mpeg"/>
+      <title>異世界転移したけど、最初�E村が滁E��でた件、E/title>
+      <description>「異世界転移したけど、最初�E村が滁E��でた件。」�E音声版をお届けします、E/description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/異世界転移したけど、最初�E村が滁E��でた件、E20260210_142520.mp3" length="172844" type="audio/mpeg"/>
       <guid isPermaLink="false">c58018eff263076660d489da3b854928</guid>
       <pubDate>Tue, 10 Feb 2026 14:25:31 +0900</pubDate>
       <itunes:duration>00:00:43</itunes:duration>

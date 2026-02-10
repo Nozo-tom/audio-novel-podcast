@@ -21,7 +21,7 @@ podcast:
   # セルフホストの場合はここに設定
   # 例: https://your-name.github.io/audio-novel
   # 例: https://your-bucket.r2.cloudflarestorage.com
-  base_url: "YOUR_HOSTING_URL_HERE"
+  base_url: "https://Nozo-tom.github.io/audio-novel-podcast"
 
 # ------------------------------------------------------------------------------
 # TTS（テキスト音声合成）設定
