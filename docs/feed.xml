@@ -8,6 +8,10 @@
     <description>異世界ファンタジー音声小説。テキストから自動生成されたオーディオノベルをお届けします。</description>
     <language>ja</language>
     <itunes:author>制作チーム</itunes:author>
+    <itunes:owner>
+        <itunes:name>制作チーム</itunes:name>
+        <itunes:email>n.ataka.tom@gmail.com</itunes:email>
+    </itunes:owner>
     <itunes:category text="Arts">
       <itunes:category text="Books"/>
     </itunes:category>
