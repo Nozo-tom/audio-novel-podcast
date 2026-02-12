@@ -492,9 +492,10 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
         corrections.update(config_corrections)
     
     if is_script:
-        print("🎭 台本モード: 漢字[かな] を [かな] に変換します...")
-        # 漢字[かな] の形式を かな に置換（スペースを入れず、文章を繋げる）
-        novel_text = re.sub(r'[^\[\]\n\s]+?\[(.+?)\]', r'\1', novel_text)
+        print("🎭 台本モード: 漢字[かな] 形式を かな に置換します...")
+        # 漢字[かな] 形式のみを置換し、それ以外の文章（漢字・かななど）はそのまま維持
+        # これにより文章としての意味（コンテキスト）をTTSに伝えます
+        novel_text = re.sub(r'[^\[\]\s]+?\[(.+?)\]', r'\1', novel_text)
     else:
         # 通常モード: 読みチェックと辞書適用
         check_reading(novel_text, corrections, config)
