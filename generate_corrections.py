@@ -69,14 +69,27 @@ def generate_corrections(text_path):
         corrections_json = response.choices[0].message.content
         corrections = json.loads(corrections_json)
         
-        # YAMLデータの作成
-        # ファイル名から日付等のプレフィックスを除去（例: 20250915_タイトル.txt -> タイトル）
+        # ファイル名からタイトルを抽出
         filename_stem = Path(text_path).stem
         title = re.sub(r'^\d{8}_', '', filename_stem)
         
+        # 性別・音声判定の追加
+        gender_res = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": "小説の冒頭を読み、主人公の性別を判定してください。'male' か 'female' か 'unknown' で答えてください。"},
+                      {"role": "user", "content": f"小説冒頭:\n---\n{content[:1000]}"}],
+            response_format={ "type": "text" }
+        )
+        gender = gender_res.choices[0].message.content.strip().lower()
+        
+        # 性別に基づいたデフォルト音声の提案
+        suggested_voice = "nova" if "female" in gender else "fable"
+        print(f"👤 主人公の性別判定: {gender} -> 推奨音声: {suggested_voice}")
+
         yaml_data = {
             "title": title,
-            "category": "現実世界[恋愛]", # デフォルト値（必要に応じてAIに判定させることも可能）
+            "category": "現実世界[恋愛]",
+            "voice": suggested_voice,
             "original_date": filename_stem.split('_')[0] if '_' in filename_stem else "",
             "corrections": corrections
         }
@@ -84,7 +97,7 @@ def generate_corrections(text_path):
         # 保存先：小説と同じフォルダの .yaml
         yaml_path = Path(text_path).with_suffix('.yaml')
         
-        # すでにファイルがある場合は、correctionsをマージするか検討（今回は上書き保存）
+        # 保存
         with open(yaml_path, 'w', encoding='utf-8') as f:
             yaml.dump(yaml_data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
         
