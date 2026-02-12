@@ -33,6 +33,7 @@ import time
 import argparse
 import tempfile
 import hashlib
+import urllib.parse
 from pathlib import Path
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -682,7 +683,7 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
     <item>
       <title>{_xml_escape(ep['title'])}</title>
       <description>{_xml_escape(ep['description'])}</description>
-      <enclosure url="{base_url}/{ep['filename']}" length="{ep['size']}" type="audio/mpeg"/>
+      <enclosure url="{base_url}/{urllib.parse.quote(ep['filename'])}" length="{ep['size']}" type="audio/mpeg"/>
       <guid isPermaLink="false">{ep['guid']}</guid>
       <pubDate>{ep['pub_date']}</pubDate>
       <itunes:duration>{ep['duration_formatted']}</itunes:duration>
