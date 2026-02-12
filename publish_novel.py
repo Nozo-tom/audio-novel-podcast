@@ -467,22 +467,40 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
         print("❌ エンコーディング検出失敗")
         return None, 0
     
+    # 台本ファイル (.script.txt) の確認
+    script_file = Path(input_file).with_suffix('.script.txt')
+    is_script = False
+    
+    if script_file.exists():
+        print(f"📖 台本ファイルを発見しました: {script_file.name}")
+        try:
+            with open(script_file, 'r', encoding='utf-8') as f:
+                novel_text = f.read()
+            is_script = True
+        except Exception as e:
+            print(f"⚠️ 台本の読み込みに失敗しました（原文を使用します）: {e}")
+
     # 前処理
     novel_text = novel_text.strip()
     novel_text = re.sub(r'\r\n', '\n', novel_text)
     novel_text = re.sub(r'\n{3,}', '\n\n', novel_text)
 
-    # 読み替え辞書準
+    # 読み替え辞書準備
     corrections = DEFAULT_CORRECTIONS.copy()
     config_corrections = config.get('reading_corrections', {})
     if config_corrections:
         corrections.update(config_corrections)
     
-    # ここで読みチェックを行う (チェック後に辞書適用)
-    check_reading(novel_text, corrections, config)
-    
-    print("📝 読み替え辞書を適用中...")
-    novel_text = apply_replacements(novel_text, corrections)
+    if is_script:
+        print("🎭 台本モード: 漢字[かな] を [かな] に変換します...")
+        # 漢字[かな] の形式を かな に置換
+        # ※ かな の前後にスペースを入れることで、TTSの読みの明瞭さを向上させる
+        novel_text = re.sub(r'[^\[\]\n\s]+?\[(.+?)\]', r' \1 ', novel_text)
+    else:
+        # 通常モード: 読みチェックと辞書適用
+        check_reading(novel_text, corrections, config)
+        print("📝 読み替え辞書を適用中...")
+        novel_text = apply_replacements(novel_text, corrections)
     
     # テキスト分割
     chunks = split_text_into_chunks(novel_text, max_chunk_size)
