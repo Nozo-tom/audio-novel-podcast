@@ -224,15 +224,54 @@ DEFAULT_CORRECTIONS = {
 }
 
 def apply_replacements(text, corrections):
-    """読み替え辞書に基づいてテキストを置換（ひらがな化を徹底）"""
-    # 長い単語から順に置換
-    sorted_dict = sorted(corrections.items(), key=lambda x: len(x[0]), reverse=True)
-    for word, reading in sorted_dict:
-        # 置換時に前後に微小なスペースまたは句読点を意識させることで、
-        # 「おこのこ」のような不自然な読みの分割を防ぐ
-        # OpenAI TTS はスペースで発話の区切りを判断するため、読みをひらがなで固定
-        text = text.replace(word, reading)
-    return text
+    """
+    形態素解析(Janome)を使用して、文章構造を維持しつつ、辞書に基づいて読みを補正する。
+    1. 固有名詞などの保護語句を先にマーク
+    2. 残りの漢字をJanomeで解析し、文脈に合った読みを付与
+    """
+    try:
+        from janome.tokenizer import Tokenizer
+    except ImportError:
+        print("⚠️ janome がインストールされていないため、簡易置換を使用します。")
+        sorted_dict = sorted(corrections.items(), key=lambda x: len(x[0]), reverse=True)
+        for word, reading in sorted_dict:
+            text = text.replace(word, reading)
+        return text
+
+    t = Tokenizer()
+    
+    # 1. 固有名詞や特定の指定（YAML辞書）を保護（長い順に置換してプレースホルダー化）
+    # 例: 黒崎レイ -> __REF_0__
+    sorted_corrections = sorted(corrections.items(), key=lambda x: len(x[0]), reverse=True)
+    placeholders = {}
+    temp_text = text
+    
+    for i, (word, reading) in enumerate(sorted_corrections):
+        placeholder = f"__REF_{i}__"
+        placeholders[placeholder] = reading
+        temp_text = temp_text.replace(word, placeholder)
+    
+    # 2. Janomeで形態素解析し、漢字の読みを文脈から取得
+    result_text = ""
+    for token in t.tokenize(temp_text):
+        surface = token.surface
+        
+        # プレースホルダー（特注ワード）の場合は元の（正しい）読みに戻す
+        if surface in placeholders:
+            result_text += placeholders[surface]
+        elif re.search(r'[一-龠々]', surface):
+            # 漢字が含まれる場合は読みを取得
+            reading_kana = token.reading
+            if reading_kana and reading_kana != "*":
+                # カタカナをひらがなに変換
+                reading_hira = "".join([chr(ord(c) - 96) if 0x30A1 <= ord(c) <= 0x30F6 else c for c in reading_kana])
+                result_text += reading_hira
+            else:
+                result_text += surface
+        else:
+            result_text += surface
+            
+    return result_text
 
 # =============================================================================
 # 読みチェック (Janome)
