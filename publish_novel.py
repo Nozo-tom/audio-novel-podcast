@@ -9,13 +9,13 @@
 #   python publish_novel.py --feed-only --mp3 "mp3/既存.mp3" --title "タイトル"
 #
 # 初回セットアップ:
-#   1. pip install openai pydub pyyaml python-dotenv podgen mutagen
+#   1. pip install openai pydub pyyaml python-dotenv podgen mutagen janome
 #   2. config.yaml を編集（番組情報を設定）
 #   3. .env にAPIキーを設定
 #
 # 🚀 Core Ultra 285 最適化:
-#   - 並列処理によるAPIリクエスト高速化 (ThreadPoolExecutor)
-#   - マルチスレッドでの音声生成
+#   - 並列処理によるAPIリクエスト高速化
+#   - オフライン読み推定チェック (Janome)
 #
 # =============================================================================
 
@@ -156,12 +156,12 @@ def git_commit_push(message="Update podcast feed"):
         print("\n🚀 GitHubへアップロード中...")
         # ステージング
         subprocess.run(["git", "add", "."], check=True)
-        # コミット (変更がない場合はエラーになるのでtry-catchで無視しても良いが、check=Falseにする手もある)
+        # コミット
         result = subprocess.run(["git", "commit", "-m", message], capture_output=True, text=True)
         if result.returncode != 0:
             if "nothing to commit" in result.stdout:
                 print("ℹ️ コミットする変更はありませんでした")
-                return
+                return # 変更なしでもpushは試みるか、ここで抜けるか。念のためpushはしない
             else:
                 print(f"⚠️ Git Commit Error: {result.stderr}")
                 return
@@ -189,7 +189,7 @@ def move_to_completed(file_path):
     yaml_target = completed_dir / yaml_source.name
     
     try:
-        # 既に存在する場合は上書き移動(shutil.moveは上書き動作するが、WindowsではDestination existエラーになる場合があるためunlink)
+        # 既に存在する場合は上書き移動
         if target.exists():
             target.unlink()
         
@@ -229,6 +229,107 @@ def apply_replacements(text, corrections):
     for word, reading in sorted_dict:
         text = text.replace(word, reading)
     return text
+
+# =============================================================================
+# 読みチェック (Janome)
+# =============================================================================
+def check_reading(text, corrections, config):
+    try:
+        from janome.tokenizer import Tokenizer
+        from collections import Counter
+        
+        print("\n" + "─" * 60)
+        print("🔍 STEP 0: 読み推定チェック (Beta)")
+        print("─" * 60)
+
+        t = Tokenizer()
+        
+        # チェック対象の抽出
+        check_words = []
+        unknown_words = []
+        
+        # 抽出したい品詞
+        TARGET_POS = ['名詞']
+        IGNORE_WORDS = ['こと', 'もの', 'よう', 'ため', 'やつ', 'これ', 'それ', 'あれ']
+        
+        print("⏳ テキスト解析中...")
+        for token in t.tokenize(text):
+            pos = token.part_of_speech.split(',')[0]
+            sub_pos = token.part_of_speech.split(',')[1]
+            
+            if pos in TARGET_POS:
+                surface = token.surface
+                reading = token.reading
+                
+                # カタカナ、ひらがな、英数字のみの単語はスキップ（読み間違いにくい）
+                if all(c in "ァ-ンーぁ-ん0-9a-zA-Z" for c in surface):
+                    continue
+                    
+                # 無視リスト
+                if surface in IGNORE_WORDS:
+                    continue
+                    
+                # 固有名称（人名、地域、組織）は特に重要
+                is_proper = (sub_pos == '固有名詞')
+                
+                # 読みが推定できない場合（未知語）
+                if reading == '*':
+                    unknown_words.append(surface)
+                else:
+                    check_words.append((surface, reading, is_proper))
+        
+        # 集計
+        words_counter = Counter([(w, r, p) for w, r, p in check_words])
+        sorted_words = sorted(words_counter.items(), key=lambda x: (not x[0][2], -x[1])) # 固有名詞優先、頻度順
+        
+        # 結果表示
+        print(f"\n{'単語':<12} | {'推定読み':<12} | {'回数':<4} | {'判定'}")
+        print("-" * 50)
+        
+        lines_printed = 0
+        MAX_LINES = 20 # 表示数制限
+        
+        found_issues = False
+        
+        for (word, reading, is_proper), count in sorted_words:
+            # 辞書登録済みのものはスキップ
+            if word in corrections:
+                continue
+                
+            # 漢字を含まないものはスキップ
+            if all(c in "ァ-ンーぁ-ん0-9a-zA-Z" for c in word):
+                continue
+            
+            # 1文字の名詞はノイズが多いのでスキップ
+            if len(word) == 1 and not is_proper:
+                continue
+
+            found_issues = True
+            mark = "🔴" if is_proper else "  "
+            print(f"{mark} {word:<10} | {reading:<12} | {count:<4} |")
+            
+            lines_printed += 1
+            if lines_printed >= MAX_LINES:
+                print(f"\n... 他 {len(sorted_words) - MAX_LINES} 語")
+                break
+        
+        if unknown_words:
+            print("\n⚠️ 読みが不明な単語 (辞書登録推奨)")
+            unknown_counter = Counter(unknown_words)
+            for word, count in unknown_counter.most_common(10):
+                 print(f"❓ {word} ({count}回)")
+            found_issues = True
+        
+        if found_issues:
+            print("\n💡 ヒント: 読み間違いがある場合は .yaml の corrections に追加してください")
+            print("   （処理はそのまま続行します）")
+        else:
+            print("✅ 特に注意が必要な単語は見つかりませんでした")
+
+    except ImportError:
+        print("⚠️ janomeライブラリがないため読みチェックをスキップします (pip install janome)")
+    except Exception as e:
+        print(f"⚠️ 読みチェック中にエラー: {e}")
 
 # =============================================================================
 # テキスト分割
@@ -366,12 +467,15 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
     novel_text = novel_text.strip()
     novel_text = re.sub(r'\r\n', '\n', novel_text)
     novel_text = re.sub(r'\n{3,}', '\n\n', novel_text)
-    
-    # 読み替え辞書
+
+    # 読み替え辞書準
     corrections = DEFAULT_CORRECTIONS.copy()
     config_corrections = config.get('reading_corrections', {})
     if config_corrections:
         corrections.update(config_corrections)
+    
+    # ここで読みチェックを行う (チェック後に辞書適用)
+    check_reading(novel_text, corrections, config)
     
     print("📝 読み替え辞書を適用中...")
     novel_text = apply_replacements(novel_text, corrections)
@@ -410,8 +514,8 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
     
     # 並列処理: ThreadPoolExecutorを使用
     # APIリクエストはIOバウンドだが、多数の同時接続による高速化を図る
-    # 同時接続数5 (OpenAIのレート制限考慮)
-    with ThreadPoolExecutor(max_workers=5) as executor:
+    # 同時接続数10
+    with ThreadPoolExecutor(max_workers=10) as executor:
         futures = {executor.submit(generate_chunk, client, chunk, i, tts_model, tts_voice, tts_instructions): i for i, chunk in enumerate(chunks)}
         
         for future in as_completed(futures):
@@ -737,6 +841,10 @@ def main():
         # novelsフォルダ内のtxtファイルを検索
         novels_dir = Path(__file__).parent / "novels"
         if novels_dir.exists():
+            print(f"DEBUG: Search dir: {novels_dir.absolute()}")
+            # Print all files in dir for debug
+            for f in novels_dir.iterdir():
+                print(f"DEBUG: Found file: {f.name}")
             target_files = list(novels_dir.glob("*.txt"))
             # completedフォルダは除外（globは再帰しないのでOK）
             print(f"🔎 novelsフォルダ内の小説を検索中... {len(target_files)}件ヒット")

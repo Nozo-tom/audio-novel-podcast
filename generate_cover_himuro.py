@@ -1,0 +1,183 @@
+import os
+import sys
+import requests
+import shutil
+from pathlib import Path
+from dotenv import load_dotenv
+from PIL import Image, ImageDraw, ImageFont
+from io import BytesIO
+
+# Windows cp932 コンソール対策
+if sys.platform == "win32":
+    sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+    sys.stderr.reconfigure(encoding='utf-8', errors='replace')
+
+# .env読み込み
+env_path = Path(__file__).parent / ".env"
+if env_path.exists():
+    load_dotenv(env_path)
+
+try:
+    from openai import OpenAI
+except ImportError:
+    print("❌ openai ライブラリが必要です: pip install openai")
+    sys.exit(1)
+
+# 設定
+# タイトルを改行で区切る（右側の列から順に描画される）
+TITLE = "俺が憧れの\n氷室さんの\n秘密を知ったら\n異能力事件に\n巻き込まれた件"
+AUTHOR = "桜木ひより"
+TARGET_NOVEL_NAME = "20250913_俺が憧れの氷室さんの秘密を知ったら異能力事件に巻き込まれた件"
+
+# 出力パス
+OUTPUT_DIR = Path(__file__).parent / "images"
+OUTPUT_DIR.mkdir(exist_ok=True)
+OUTPUT_FILENAME = f"{TARGET_NOVEL_NAME}.png"
+OUTPUT_PATH = OUTPUT_DIR / OUTPUT_FILENAME
+
+# バックアップ
+if OUTPUT_PATH.exists():
+    shutil.copy2(OUTPUT_PATH, OUTPUT_DIR / f"{TARGET_NOVEL_NAME}_old.png")
+
+# プロンプト (文字なし、イラストのみ)
+PROMPT = """
+A masterpiece light novel cover illustration, anime style.
+A beautiful Japanese high school girl with long black straight hair and cool, sharp eyes (cool beauty).
+She wears a standard high school uniform (blazer or sailor suit).
+She is standing in a school classroom at sunset (warm orange and purple light).
+In her hand, she is magically floating a beautiful, sparkling structure made of ice crystals (like an ice rose).
+Magical ice particles and frost effects surround her hand, contrasting with the warm sunset light.
+NO TEXT, NO LOGOS. Clean illustration. High quality, detailed art.
+"""
+
+def generate_image_dalle3(client, prompt):
+    print("🎨 DALL-E 3 でイラストを生成中 (文字なし)...")
+    try:
+        response = client.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        return response.data[0].url
+    except Exception as e:
+        print(f"❌ 画像生成エラー: {e}")
+        return None
+
+def download_image(url):
+    print("⬇️ 画像をダウンロード中...")
+    try:
+        response = requests.get(url)
+        response.raise_for_status()
+        return Image.open(BytesIO(response.content))
+    except Exception as e:
+        print(f"❌ ダウンロードエラー: {e}")
+        return None
+
+def draw_text_with_border(draw, text, x, y, font, text_color, border_color, border_width):
+    # 縁取り
+    for dx in range(-border_width, border_width + 1):
+        for dy in range(-border_width, border_width + 1):
+            if abs(dx) + abs(dy) == 0: continue
+            draw.text((x + dx, y + dy), text, font=font, fill=border_color)
+    # 本体
+    draw.text((x, y), text, font=font, fill=text_color)
+
+def add_vertical_title(image, title, author):
+    print("✍️ タイトルを縦書きで合成中...")
+    draw = ImageDraw.Draw(image)
+    width, height = image.size
+    
+    # フォント設定
+    font_path = "C:\\Windows\\Fonts\\BIZ-UDMinchoM.ttc"
+    if not os.path.exists(font_path):
+        font_path = "C:\\Windows\\Fonts\\msmincho.ttc"
+    
+    # タイトル設定
+    title_size = 60 # 文字サイズ
+    try:
+        title_font = ImageFont.truetype(font_path, title_size)
+    except:
+        title_font = ImageFont.load_default()
+
+    # 作者設定
+    author_size = 40
+    try:
+        author_font = ImageFont.truetype(font_path, author_size)
+    except:
+        author_font = ImageFont.load_default()
+
+    # 配置計算（右上に配置）
+    lines = title.split("\n")
+    # 右端からの開始位置
+    start_x = width - 100 
+    start_y = 50
+    
+    # タイトル色設定 (氷のイメージ：白文字＋青/水色の縁取り)
+    text_color = (255, 255, 255)
+    border_color = (0, 50, 100) # 濃い青
+
+    current_x = start_x
+    
+    for line in lines:
+        current_y = start_y
+        for char in line:
+            # 句読点・小文字の微調整
+            char_draw = char
+            offset_x = 0
+            offset_y = 0
+            if char in "、。":
+                offset_x = title_size * 0.6
+                offset_y = -title_size * 0.6
+            elif char in "っゃゅょ":
+                 offset_x = title_size * 0.1
+                 offset_y = -title_size * 0.1
+
+            # 縦書き描画
+            draw_text_with_border(draw, char_draw, current_x + offset_x, current_y + offset_y, 
+                                  title_font, text_color, border_color, 4)
+            
+            # 文字送り
+            current_y += title_size * 1.05
+        
+        # 行送り（左へ）
+        current_x -= title_size * 1.5
+
+    # 作者名（左下、横書き）
+    author_text = f"著：{AUTHOR}"
+    bbox = draw.textbbox((0,0), author_text, font=author_font)
+    w = bbox[2] - bbox[0]
+    h = bbox[3] - bbox[1]
+    
+    ax = 50
+    ay = height - h - 50
+    
+    # 背景帯
+    draw.rectangle([ax - 10, ay - 10, ax + w + 10, ay + h + 10], fill=(0,0,0,180))
+    draw_text_with_border(draw, author_text, ax, ay, author_font, (255, 255, 255), (0,0,0), 0)
+
+    return image
+
+def main():
+    api_key = os.environ.get("OPENAI_API_KEY")
+    client = OpenAI(api_key=api_key)
+    
+    # 1. 画像生成（文字なし）
+    image_url = generate_image_dalle3(client, PROMPT)
+    if not image_url: return
+    
+    # 2. ダウンロード
+    img = download_image(image_url)
+    if not img: return
+    
+    # 3. 文字合成（Python制御で綺麗に）
+    final_img = add_vertical_title(img, TITLE, AUTHOR)
+    
+    # 保存
+    final_img.save(OUTPUT_PATH)
+    print(f"🎉 完成: {OUTPUT_PATH}")
+    os.startfile(OUTPUT_PATH)
+
+if __name__ == "__main__":
+    main()
