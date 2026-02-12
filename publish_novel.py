@@ -228,6 +228,7 @@ def apply_replacements(text, corrections):
     形態素解析(Janome)を使用して、文章構造を維持しつつ、辞書に基づいて読みを補正する。
     1. 固有名詞などの保護語句を先にマーク
     2. 残りの漢字をJanomeで解析し、文脈に合った読みを付与
+    3. 解析後にプレースホルダーを置換
     """
     try:
         from janome.tokenizer import Tokenizer
@@ -241,13 +242,14 @@ def apply_replacements(text, corrections):
     t = Tokenizer()
     
     # 1. 固有名詞や特定の指定（YAML辞書）を保護（長い順に置換してプレースホルダー化）
-    # 例: 黒崎レイ -> __REF_0__
+    # 例: 黒崎レイ -> [[REF0]]
     sorted_corrections = sorted(corrections.items(), key=lambda x: len(x[0]), reverse=True)
     placeholders = {}
     temp_text = text
     
     for i, (word, reading) in enumerate(sorted_corrections):
-        placeholder = f"__REF_{i}__"
+        # Janomeが分割しにくい形式の記号を使用
+        placeholder = f"REFP{i}H"
         placeholders[placeholder] = reading
         temp_text = temp_text.replace(word, placeholder)
     
@@ -256,11 +258,8 @@ def apply_replacements(text, corrections):
     for token in t.tokenize(temp_text):
         surface = token.surface
         
-        # プレースホルダー（特注ワード）の場合は元の（正しい）読みに戻す
-        if surface in placeholders:
-            result_text += placeholders[surface]
-        elif re.search(r'[一-龠々]', surface):
-            # 漢字が含まれる場合は読みを取得
+        if re.search(r'[一-龠々]', surface):
+            # 漢字が含まれる場合は読みを取得（プレースホルダーは漢字を含まないのでここには入らない）
             reading_kana = token.reading
             if reading_kana and reading_kana != "*":
                 # カタカナをひらがなに変換
@@ -270,6 +269,10 @@ def apply_replacements(text, corrections):
                 result_text += surface
         else:
             result_text += surface
+            
+    # 3. 最後にプレースホルダーを本物の読みに戻す
+    for placeholder, reading in placeholders.items():
+        result_text = result_text.replace(placeholder, reading)
             
     return result_text
 
