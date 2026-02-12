@@ -25,23 +25,26 @@ def generate_corrections(text_path):
         print(f"❌ 読み込み失敗: {e}")
         return
 
-    print(f"🔍 最強辞書（全文スキャン）を作成中: {Path(text_path).name} ...")
+    print(f"🔍 最強辞書（全文スキャン＆全漢字抽出）を作成中: {Path(text_path).name} ...")
     
-    # テキスト量が多い場合は、重要な箇所（最初・中間・最後）をサンプリングしてAIに渡す
-    # または全文を投げる（今回は3k-4k文字程度までを想定）
-    content_sample = full_text[:4000] 
+    # 解析対象（モデルのトークン制限内で最大化）
+    content_sample = full_text[:6000] 
 
     prompt = f"""
-以下の小説テキストを読み、TTS（音声合成）の読み間違いを防ぐための「完璧な読み辞書」を作成してください。
-テキストに登場する「すべての漢字を含む単語（熟語、名前、一般名詞）」を抽出し、正しい読み（ひらがな）をJSONで出力してください。
+以下の小説テキストに登場する「すべての漢字を含む単語（熟語、固有名詞、一般名詞、動詞、形容詞など）」を漏らさず抽出し、
+その正しい読み（ひらがな）をJSON形式でリスト化してください。
 
-【抽出ルール】
-1. 登場人物の名前（黒崎、花音など）などの固有名詞。
-2. 「肉親」「宝物」「料理人」「涙」などの一般名詞。
-3. 数字を含む表現（17歳、280歳、1年間など）。
-4. 読みが複数ある漢字や、AIが間違えやすい熟語すべて。
+【抽出の最重要ルール】
+1. 小説に出てくる全ての漢字熟語を対象にしてください。
+2. 特に以下の語句はTTSが読み間違えやすいため、確実に入れてください：
+   - 「正体（しょうたい）」「成人（せいじん）」「肉親（にくしん）」「宝物（たからもの）」「死神（しにがみ）」「見習い（みならい）」
+   - 固有名詞（黒崎レイ、山田花音、桜ヶ丘高校など）
+   - 数字と単位（17歳、280歳、1年間、4月、2年B組など）
+   - 文脈で読みが変わる語句（昨日、今日、明日、今朝、十分など）
+3. 活用語（動詞の送り仮名付きなど）も、読み間違いが懸念されるものは含めてください。
 
-出力形式: JSON {{ "単語": "よみ" }}
+出力形式: JSON {{ "漢字": "ひらがな" }}
+※「漢字」は本文中の表記そのまま、「ひらがな」は正しい読みのみ。
 
 テキスト:
 ---
@@ -51,8 +54,8 @@ def generate_corrections(text_path):
 
     try:
         response = client.chat.completions.create(
-            model="gpt-4o", # 抽出精度を上げるため 4o を使用
-            messages=[{"role": "system", "content": "あなたはプロの編集者です。"},
+            model="gpt-4o", # 精度優先
+            messages=[{"role": "system", "content": "あなたはプロの校正者です。"},
                       {"role": "user", "content": prompt}],
             response_format={ "type": "json_object" }
         )
@@ -83,7 +86,7 @@ def generate_corrections(text_path):
         with open(yaml_path, 'w', encoding='utf-8') as f:
             yaml.dump(yaml_data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
         
-        print(f"✅ 最強辞書を保存しました: {yaml_path}")
+        print(f"✅ 最強辞書（全網羅版）を保存しました: {yaml_path}")
         print(f"   登録単語数: {len(corrections)}件")
             
     except Exception as e:
