@@ -225,54 +225,17 @@ DEFAULT_CORRECTIONS = {
 
 def apply_replacements(text, corrections):
     """
-    形態素解析(Janome)を使用して、文章構造を維持しつつ、辞書に基づいて読みを補正する。
-    1. 固有名詞などの保護語句を先にマーク
-    2. 残りの漢字をJanomeで解析し、文脈に合った読みを付与
-    3. 解析後にプレースホルダーを置換
+    漢字を維持しつつ、辞書にある単語のみを置換する。
+    全文をひらがなにするとイントネーションが崩壊するため、
+    間違えやすい単語だけをピンポイントで補正するのが最も自然に聞こえる。
     """
-    try:
-        from janome.tokenizer import Tokenizer
-    except ImportError:
-        print("⚠️ janome がインストールされていないため、簡易置換を使用します。")
-        sorted_dict = sorted(corrections.items(), key=lambda x: len(x[0]), reverse=True)
-        for word, reading in sorted_dict:
-            text = text.replace(word, reading)
-        return text
-
-    t = Tokenizer()
-    
-    # 1. 固有名詞や特定の指定（YAML辞書）を保護（長い順に置換してプレースホルダー化）
-    # 例: 黒崎レイ -> [[REF0]]
+    # 辞書の単語を長い順に置換
     sorted_corrections = sorted(corrections.items(), key=lambda x: len(x[0]), reverse=True)
-    placeholders = {}
-    temp_text = text
     
-    for i, (word, reading) in enumerate(sorted_corrections):
-        # Janomeが分割しにくい形式の記号を使用
-        placeholder = f"REFP{i}H"
-        placeholders[placeholder] = reading
-        temp_text = temp_text.replace(word, placeholder)
-    
-    # 2. Janomeで形態素解析し、漢字の読みを文脈から取得
-    result_text = ""
-    for token in t.tokenize(temp_text):
-        surface = token.surface
-        
-        if re.search(r'[一-龠々]', surface):
-            # 漢字が含まれる場合は読みを取得（プレースホルダーは漢字を含まないのでここには入らない）
-            reading_kana = token.reading
-            if reading_kana and reading_kana != "*":
-                # カタカナをひらがなに変換
-                reading_hira = "".join([chr(ord(c) - 96) if 0x30A1 <= ord(c) <= 0x30F6 else c for c in reading_kana])
-                result_text += reading_hira
-            else:
-                result_text += surface
-        else:
-            result_text += surface
-            
-    # 3. 最後にプレースホルダーを本物の読みに戻す
-    for placeholder, reading in placeholders.items():
-        result_text = result_text.replace(placeholder, reading)
+    result_text = text
+    for word, reading in sorted_corrections:
+        # 単純置換。漢字のまわりの文脈を壊さない
+        result_text = result_text.replace(word, reading)
             
     return result_text
 
