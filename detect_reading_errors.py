@@ -10,6 +10,11 @@ import sys
 import tempfile
 import difflib
 from pathlib import Path
+from dotenv import load_dotenv
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+# .envファイルを読み込む
+load_dotenv()
 
 # Windows対応: UTF-8出力設定
 sys.stdout.reconfigure(encoding='utf-8')
@@ -19,7 +24,7 @@ sys.stderr.reconfigure(encoding='utf-8')
 # 設定
 # =============================================================================
 
-INPUT_FILE = r"c:\Users\natak\Documents\Novel\ひより01_元.txt"
+INPUT_FILE = r"c:\Users\natak\Documents\Novel\novels\20250915_お母さんの手料理レシピを持って異世界に転移したら、なぜか最強の料理人になった件.txt"
 OUTPUT_DIR = r"c:\Users\natak\Documents\Novel"
 
 TTS_MODEL = "tts-1"
@@ -142,20 +147,20 @@ total_chars = sum(len(chunk) for chunk in chunks)
 print(f"📦 {len(chunks)} チャンクに分割")
 
 # =============================================================================
-# ステップ1: TTS音声生成
+# ステップ1: TTS音声生成 (Speed Boost - 並列処理)
 # =============================================================================
 
 print("\n" + "=" * 70)
-print("🎙️ ステップ1: TTS音声生成")
+print("🎙️ ステップ1: TTS音声生成 (Speed Boost)")
 print("=" * 70)
 
 temp_dir = tempfile.mkdtemp()
-audio_files = []
-processed_chars = 0
+audio_files_map = {}
+total_chunks = len(chunks)
+completed_tts = 0
 
-for i, chunk in enumerate(chunks):
+def tts_task(chunk, i):
     output_path = os.path.join(temp_dir, f"chunk_{i+1:03d}.mp3")
-    
     try:
         response = client.audio.speech.create(
             model=TTS_MODEL,
@@ -164,32 +169,37 @@ for i, chunk in enumerate(chunks):
             response_format="mp3"
         )
         response.stream_to_file(output_path)
-        audio_files.append(output_path)
-        
-        processed_chars += len(chunk)
-        progress = processed_chars / total_chars * 100
-        print(f"   [{i+1}/{len(chunks)}] TTS生成完了 ({len(chunk):,}文字) - 進捗: {progress:.1f}%")
-        
-        if i < len(chunks) - 1:
-            time.sleep(REQUEST_INTERVAL)
-            
+        return i, output_path, None
     except Exception as e:
-        print(f"❌ チャンク {i+1} でエラー: {str(e)}")
-        sys.exit(1)
+        return i, None, str(e)
 
-print(f"✅ 音声生成完了: {len(audio_files)} ファイル")
+with ThreadPoolExecutor(max_workers=10) as executor:
+    futures = [executor.submit(tts_task, chunk, i) for i, chunk in enumerate(chunks)]
+    for future in as_completed(futures):
+        i, path, error = future.result()
+        if error:
+            print(f"❌ チャンク {i+1} でエラー: {error}")
+            continue
+        audio_files_map[i] = path
+        completed_tts += 1
+        pct = completed_tts / total_chunks * 100
+        print(f"\r   🚀 TTS生成中: [{completed_tts}/{total_chunks}] {pct:.1f}%", end='', flush=True)
+
+print("\n✅ 音声生成完了")
+audio_files = [audio_files_map[i] for i in range(total_chunks) if i in audio_files_map]
 
 # =============================================================================
-# ステップ2: Whisper文字起こし
+# ステップ2: Whisper文字起こし (Speed Boost - 並列処理)
 # =============================================================================
 
 print("\n" + "=" * 70)
-print("📝 ステップ2: Whisper文字起こし")
+print("📝 ステップ2: Whisper文字起こし (Speed Boost)")
 print("=" * 70)
 
-transcribed_texts = []
+transcribed_map = {}
+completed_whisper = 0
 
-for i, audio_path in enumerate(audio_files):
+def whisper_task(audio_path, i):
     try:
         with open(audio_path, "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
@@ -198,19 +208,24 @@ for i, audio_path in enumerate(audio_files):
                 language="ja",
                 response_format="text"
             )
-        
-        transcribed_texts.append(transcript)
-        progress = (i + 1) / len(audio_files) * 100
-        print(f"   [{i+1}/{len(audio_files)}] 文字起こし完了 - 進捗: {progress:.1f}%")
-        
-        if i < len(audio_files) - 1:
-            time.sleep(REQUEST_INTERVAL)
-            
+        return i, transcript, None
     except Exception as e:
-        print(f"❌ チャンク {i+1} でエラー: {str(e)}")
-        transcribed_texts.append("")
+        return i, "", str(e)
 
-print(f"✅ 文字起こし完了: {len(transcribed_texts)} チャンク")
+with ThreadPoolExecutor(max_workers=10) as executor:
+    futures = [executor.submit(whisper_task, audio_files_map[i], i) for i in range(len(audio_files))]
+    for future in as_completed(futures):
+        i, transcript, error = future.result()
+        if error:
+            print(f"❌ チャンク {i+1} 文字起こしエラー: {error}")
+        transcribed_map[i] = transcript
+        completed_whisper += 1
+        pct = completed_whisper / len(audio_files) * 100
+        print(f"\r   🚀 文字起こし中: [{completed_whisper}/{len(audio_files)}] {pct:.1f}%", end='', flush=True)
+
+print("\n✅ 文字起こし完了")
+transcribed_texts = [transcribed_map[i] for i in range(len(chunks))]
+
 
 # =============================================================================
 # ステップ3: 差分比較・読み間違い検出
