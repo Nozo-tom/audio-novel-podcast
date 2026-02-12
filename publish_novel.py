@@ -345,30 +345,49 @@ def check_reading(text, corrections, config):
 # =============================================================================
 
 def split_text_into_chunks(text, max_size=4000):
-    """テキストを段落単位で分割"""
+    """テキストを指定されたサイズ以下のチャンクに分割する。
+    OpenAI TTSは大きな文脈（4096文字以内）を持たせることで、最も自然なイントネーションを生成する。
+    """
     paragraphs = text.split('\n\n')
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
-    
-    # 文末（。！？）および改行で分割
-    import re
-    # 句読点を保持したまま分割
-    sentences = re.split(r'(?<=[。！？\n])', text)
     
     chunks = []
     current_chunk = ""
     
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
-            continue
-            
-        if len(current_chunk) + len(sentence) <= max_size:
-            current_chunk += sentence + " "
-        else:
+    for paragraph in paragraphs:
+        if len(paragraph) > max_size:
             if current_chunk:
                 chunks.append(current_chunk.strip())
-            current_chunk = sentence + " "
+                current_chunk = ""
             
+            # 非常に長い段落は句読点で分割
+            import re
+            sentences = re.split(r'([。！？])', paragraph)
+            temp_chunk = ""
+            for i in range(0, len(sentences), 2):
+                sentence = sentences[i]
+                if i + 1 < len(sentences):
+                    sentence += sentences[i + 1]
+                
+                if len(temp_chunk) + len(sentence) <= max_size:
+                    temp_chunk += sentence
+                else:
+                    if temp_chunk:
+                        chunks.append(temp_chunk.strip())
+                    temp_chunk = sentence
+            
+            if temp_chunk:
+                current_chunk = temp_chunk
+        else:
+            test_chunk = current_chunk + "\n\n" + paragraph if current_chunk else paragraph
+            
+            if len(test_chunk) <= max_size:
+                current_chunk = test_chunk
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = paragraph
+    
     if current_chunk:
         chunks.append(current_chunk.strip())
         
@@ -554,14 +573,11 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
     
     total_time = time.time() - start_time
     
-    # 結合（センテンス間の「マ」を0.3秒挿入）
-    print("🔗 音声ファイルを結合中（文の間にマを挿入しています）...")
-    pause = AudioSegment.silent(duration=400) # 0.4秒の呼吸
-    
+    # 結合
+    print("🔗 音声ファイルを結合中...")
     combined = AudioSegment.empty()
-    for i, audio_file in enumerate(audio_files):
-        segment = AudioSegment.from_mp3(audio_file)
-        combined += segment + pause
+    for audio_file in audio_files:
+        combined += AudioSegment.from_mp3(audio_file)
     
     combined.export(str(output_path), format="mp3")
     
