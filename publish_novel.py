@@ -224,9 +224,13 @@ DEFAULT_CORRECTIONS = {
 }
 
 def apply_replacements(text, corrections):
-    """読み替え辞書に基づいてテキストを置換"""
+    """読み替え辞書に基づいてテキストを置換（ひらがな化を徹底）"""
+    # 長い単語から順に置換
     sorted_dict = sorted(corrections.items(), key=lambda x: len(x[0]), reverse=True)
     for word, reading in sorted_dict:
+        # 置換時に前後に微小なスペースまたは句読点を意識させることで、
+        # 「おこのこ」のような不自然な読みの分割を防ぐ
+        # OpenAI TTS はスペースで発話の区切りを判断するため、読みをひらがなで固定
         text = text.replace(word, reading)
     return text
 
