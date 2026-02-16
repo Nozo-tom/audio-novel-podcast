@@ -148,6 +148,40 @@ def process_novel(text_path, test_mode=False, char_limit=None):
     if Path(yaml_path).exists():
         print(f"  ℹ️ 既存の辞書が見つかりました: {Path(yaml_path).name}")
         print(f"  ℹ️ 既存辞書を使用します（再生成はスキップ）")
+        
+        # voiceが未設定なら主人公の性別から自動判定
+        import yaml as _yaml
+        with open(yaml_path, 'r', encoding='utf-8') as f:
+            existing_yaml = _yaml.safe_load(f) or {}
+        if not existing_yaml.get('voice'):
+            print(f"  🎭 voice未設定 → 主人公の性別を判定中...")
+            try:
+                with open(text_path, 'r', encoding='utf-8') as f:
+                    sample_text = f.read()[:3000]
+                # 女性主人公キーワード
+                female_kw = ['令嬢', '姫', '聖女', 'お嬢様', '私は', '私が', '私の', 'わたし',
+                             '彼女は主人公', '女主人公', 'ヒロイン', '少女', '魔女', '王女', '女神']
+                male_kw = ['俺は', '俺が', '俺の', '僕は', '僕が', '僕の',
+                           '勇者', '王子', '騎士', '冒険者', '少年']
+                female_score = sum(sample_text.count(kw) for kw in female_kw)
+                male_score = sum(sample_text.count(kw) for kw in male_kw)
+                # タイトルも参照
+                female_score += sum(3 for kw in ['令嬢', '姫', '聖女', '王女', '魔女', '少女', '彼女'] if kw in title)
+                male_score += sum(3 for kw in ['俺', '僕', '勇者', '王子', '騎士', '少年'] if kw in title)
+                
+                if female_score > male_score:
+                    suggested_voice = 'nova'
+                    gender_label = '女性'
+                else:
+                    suggested_voice = 'fable'
+                    gender_label = '男性'
+                
+                existing_yaml['voice'] = suggested_voice
+                with open(yaml_path, 'w', encoding='utf-8') as f:
+                    _yaml.dump(existing_yaml, f, allow_unicode=True, default_flow_style=False)
+                print(f"  ✅ 主人公: {gender_label} → voice: {suggested_voice} を設定しました")
+            except Exception as e:
+                print(f"  ⚠️ 性別判定に失敗: {e}（デフォルトvoiceで続行）")
     else:
         ok = run_script(
             [sys.executable, "generate_corrections.py", text_path, "--mode", "deep"],
