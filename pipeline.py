@@ -347,12 +347,16 @@ def process_novel(text_path, test_mode=False, char_limit=None):
     # ─────────────────────────────────────────────
     banner(9, total_steps, "GitHubへプッシュ → Spotify配信")
     
+    # 認証ダイアログを抑制する環境変数
+    git_env = os.environ.copy()
+    git_env['GIT_TERMINAL_PROMPT'] = '0'
+    
     ok = run_script(
         ["git", "add", "docs/"],
         "docs/ をステージング中..."
     )
     if ok:
-        # コミットメッセージにタイトルを含める
+        # コミットメッセージにタイトルを含める（ASCII安全な形式）
         commit_msg = f"Add episode: {title[:30]}"
         result = subprocess.run(
             ["git", "commit", "-m", commit_msg],
@@ -360,18 +364,48 @@ def process_novel(text_path, test_mode=False, char_limit=None):
             capture_output=True,
             text=True,
             encoding='utf-8',
-            errors='replace'
+            errors='replace',
+            env=git_env
         )
         if result.returncode == 0:
             print(f"  ✅ コミット完了: {commit_msg}")
-            ok = run_script(
-                ["git", "push"],
-                "GitHubへプッシュ中..."
-            )
-            if ok:
-                print("  ✅ Spotifyへのfeed配信完了！")
-            else:
-                print("  ❌ プッシュに失敗しました")
+            
+            # git push（リトライ機構付き）
+            max_retries = 3
+            push_ok = False
+            for attempt in range(1, max_retries + 1):
+                print(f"  ▸ GitHubへプッシュ中... (試行 {attempt}/{max_retries})")
+                push_result = subprocess.run(
+                    ["git", "push"],
+                    cwd=str(BASE_DIR),
+                    capture_output=True,
+                    text=True,
+                    encoding='utf-8',
+                    errors='replace',
+                    env=git_env,
+                    timeout=120
+                )
+                # gitはstderrに正常な情報も出力するので、returncodeで判定
+                if push_result.returncode == 0:
+                    stderr_msg = push_result.stderr.strip()
+                    if stderr_msg:
+                        print(f"  ℹ️ {stderr_msg}")
+                    print("  ✅ Spotifyへのfeed配信完了！")
+                    push_ok = True
+                    break
+                else:
+                    err_msg = (push_result.stderr or push_result.stdout or "").strip()
+                    print(f"  ⚠️ 試行{attempt}失敗: {err_msg[:200]}")
+                    if attempt < max_retries:
+                        wait_sec = attempt * 5
+                        print(f"  ⏳ {wait_sec}秒後にリトライします...")
+                        time.sleep(wait_sec)
+            
+            if not push_ok:
+                print("  ❌ git pushに失敗しました。手動で実行してください:")
+                print("     git push")
+        elif "nothing to commit" in (result.stdout + result.stderr):
+            print("  ℹ️ コミットする変更がありません（既にpush済み）")
         else:
             print(f"  ❌ コミット失敗: {result.stderr.strip()}")
     

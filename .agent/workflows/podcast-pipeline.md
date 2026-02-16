@@ -43,7 +43,7 @@ python pipeline.py
 - STEP 8: docs/に配置 + feed.xml更新（統一命名: `{日付}_{タイトル5文字}_preview.mp3`）
 - STEP 9: git push → Spotify配信
 
-### 4. git pushが失敗した場合の手動push
+### 4. git pushが3回リトライ後も失敗した場合の手動push
 ```powershell
 git add docs/
 git commit -m "Add episode: タイトル"

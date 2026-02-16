@@ -22,6 +22,8 @@ push後、以下のURLでfeedが更新されているか確認:
 - Spotifyへの反映は数分〜数時間
 
 ## 注意
-- pipeline.py の STEP 9 で自動実行されるが、日本語コミットメッセージで失敗することがある
-- 失敗した場合は手動で上記コマンドを実行
+- pipeline.py の STEP 9 で自動実行（リトライ機構あり: 最大3回、5秒間隔で再試行）
+- `GIT_TERMINAL_PROMPT=0` で認証ダイアログを抑制
+- `capture_output=True` + `returncode` で判定（stderrの情報出力をエラーと誤判定しない）
+- 3回失敗した場合のみ手動で上記コマンドを実行
 - `docs/` 以外のファイルは git add に含めない（mp3/ は .gitignore 対象）
