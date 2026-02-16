@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" 
+     xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd"
+     xmlns:content="http://purl.org/rss/1.0/modules/content/"
+     xmlns:atom="http://www.w3.org/2005/Atom">
+  <channel>
+    <title>聞くラノベ ～桜木ひより～</title>
+    <description>桜木ひよりの小説を音声でお届けします。小説家になろうにて連載中。</description>
+    <language>ja</language>
+    <itunes:author>桜木ひより</itunes:author>
+    <itunes:owner>
+      <itunes:name>桜木ひより</itunes:name>
+      <itunes:email>n.ataka.tom@gmail.com</itunes:email>
+    </itunes:owner>
+    <itunes:category text="Arts">
+      <itunes:category text="Books"/>
+    </itunes:category>
+    <itunes:explicit>false</itunes:explicit>
+    <itunes:image href="https://Nozo-tom.github.io/audio-novel-podcast/cover.png"/>
+    <link></link>
+    <atom:link href="https://Nozo-tom.github.io/audio-novel-podcast/feed.xml" rel="self" type="application/rss+xml"/>
+
+    <item>
+      <title>前世で告白できなかった幼馴染に、今度こそ想いを伝えたくて転生したら、もう一人の転生者がライバルだった件</title>
+      <description>「前世で告白できなかった幼馴染に、今度こそ想いを伝えたくて転生したら、もう一人の転生者がライバルだった件」の音声版をお届けします。</description>
+      <enclosure url="https://Nozo-tom.github.io/audio-novel-podcast/20250910_%E5%89%8D%E4%B8%96%E3%81%A7%E5%91%8A%E7%99%BD_preview.mp3" length="240428" type="audio/mpeg"/>
+      <guid isPermaLink="false">7b1b296a5834a98d75d0d5ea7759325c</guid>
+      <pubDate>Mon, 16 Feb 2026 11:15:55 +0900</pubDate>
+      <itunes:duration>00:01:00</itunes:duration>
+      <itunes:episode>1</itunes:episode>
+      <itunes:explicit>false</itunes:explicit>
+      <itunes:image href="https://Nozo-tom.github.io/audio-novel-podcast/20250910_%E5%89%8D%E4%B8%96%E3%81%A7%E5%91%8A%E7%99%BD.jpg"/>
+    </item>
+  </channel>
+</rss>
