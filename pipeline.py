@@ -314,15 +314,22 @@ def process_novel(text_path, test_mode=False, char_limit=None):
     banner(9, total_steps, "GitHubへプッシュ → Spotify配信")
     
     ok = run_script(
-        ["git", "add", "."],
-        "変更をステージング中..."
+        ["git", "add", "docs/"],
+        "docs/ をステージング中..."
     )
     if ok:
-        ok = run_script(
-            ["git", "commit", "-m", f"Add episode: {title[:30]}"],
-            "コミット中..."
+        # コミットメッセージにタイトルを含める
+        commit_msg = f"Add episode: {title[:30]}"
+        result = subprocess.run(
+            ["git", "commit", "-m", commit_msg],
+            cwd=str(BASE_DIR),
+            capture_output=True,
+            text=True,
+            encoding='utf-8',
+            errors='replace'
         )
-        if ok:
+        if result.returncode == 0:
+            print(f"  ✅ コミット完了: {commit_msg}")
             ok = run_script(
                 ["git", "push"],
                 "GitHubへプッシュ中..."
@@ -331,6 +338,8 @@ def process_novel(text_path, test_mode=False, char_limit=None):
                 print("  ✅ Spotifyへのfeed配信完了！")
             else:
                 print("  ❌ プッシュに失敗しました")
+        else:
+            print(f"  ❌ コミット失敗: {result.stderr.strip()}")
     
     # ─────────────────────────────────────────────
     # 完了

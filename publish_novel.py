@@ -886,7 +886,7 @@ def process_file(args, input_file, config, overrides=None):
 
     # STEP 2: 1分プレビュー版の作成
     preview_path = None
-    if not getattr(args, 'mp3_only', False) and not getattr(args, 'test', False):
+    if not getattr(args, 'mp3_only', False) and not getattr(args, 'test', False) and not args.feed_only:
         print("\n" + "─" * 60)
         print("✂️ STEP 2: 1分プレビュー版を作成")
         print("─" * 60)
@@ -945,8 +945,8 @@ def process_file(args, input_file, config, overrides=None):
         print(f"\n📁 フルver MP3: {mp3_path}")
         print(f"📡 feed登録: 1分プレビュー版")
     
-    # ファイル移動
-    if not args.feed_only and input_file and not getattr(args, 'test', False):
+    # ファイル移動（pipeline.pyから--mp3-onlyで呼ばれた場合はpipeline側で移動する）
+    if not args.feed_only and not getattr(args, 'mp3_only', False) and input_file and not getattr(args, 'test', False):
          move_to_completed(input_file)
     
     return True
