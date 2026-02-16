@@ -1,0 +1,290 @@
+function fetchNaroRanking2() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const settingSheet = ss.getSheetByName('設定');
+  const logSheet = ss.getSheetByName('ログ') || ss.insertSheet('ログ');
+  const settings = settingSheet.getRange(1, 1, settingSheet.getLastRow(), 2).getValues();
+  
+  const todayFull = Utilities.formatDate(new Date(), "JST", "yyyy-MM-dd");
+  const todayShort = Utilities.formatDate(new Date(), "JST", "MM/dd");
+  const today = new Date();
+  
+  const pageCache = {}; // ページ読み込みキャッシュ
+
+  const genreMap = {
+    101: "異世界[恋愛]", 102: "現実世界[恋愛]", 201: "ハイファンタジー", 202: "ローファンタジー",
+    301: "純文学", 302: "ヒューマンドラマ", 303: "歴史", 304: "推理", 305: "ホラー",
+    306: "アクション", 307: "コメディー", 401: "VRゲーム", 402: "宇宙", 403: "空想科学",
+    404: "パニック", 9901: "童話", 9902: "詩", 9903: "エッセイ", 9999: "その他", 9801: "ノンフィクション"
+  };
+
+  settings.forEach(row => {
+    let userIdInput = row[0].toString().trim();
+    // ★ここを復活させました（作家名の取得）
+    const userName = row[1] || "不明";
+    
+    if (!userIdInput) return;
+
+    // URLからIDを抽出する処理
+    let userId = userIdInput;
+    if (userIdInput.indexOf('syosetu.com') !== -1) {
+      const match = userIdInput.match(/mypage\.syosetu\.com\/(\d+)/);
+      if (match) {
+        userId = match[1];
+      } else {
+        const numMatch = userIdInput.match(/(\d+)/);
+        if (numMatch) userId = numMatch[1];
+      }
+    }
+
+    // API取得（lim=500 を追加して全作品を取得できるようにする）
+    const apiUrl = "https://api.syosetu.com/novelapi/api/?userid=" + userId + "&lim=500&out=json&of=t-n-g-gp-gf-dr-wr-mr-qr-daily_r-weekly_r-monthly_r-quarter_r";
+    
+    try {
+      const response = UrlFetchApp.fetch(apiUrl);
+      const apiResp = JSON.parse(response.getContentText());
+
+      // API結果が空などの場合
+      if (!apiResp || apiResp.length < 2) return;
+
+      for (let i = 1; i < apiResp.length; i++) {
+        const novel = apiResp[i];
+        const ncode = novel.ncode.toUpperCase();
+        const genreName = genreMap[novel.genre] || "その他";
+        const pt = novel.global_point;
+        
+        if (pt === 0) continue;
+       // const uploadDate = new Date(novel.general_firstup);
+       // const monthsDiff = (today - uploadDate) / (1000 * 60 * 60 * 24 * 30);
+       // if (monthsDiff > 1 && pt <= 100) continue;
+        
+        // --- 1. APIから「総合」と「ジャンル別」の数値を取得 ---
+        let d_total = novel.dr; // 日間総合
+        let d_genre = novel.daily_rank; // 日間ジャンル
+        
+        let w_total = novel.wr; // 週間総合
+        let w_genre = novel.weekly_rank; // 週間ジャンル
+        
+        let m_total = novel.mr; // 月間総合
+        let m_genre = novel.monthly_rank; // 月間ジャンル
+        
+        let q_total = novel.qr; // 四半期総合
+        let q_genre = novel.quarter_rank; // 四半期ジャンル
+
+        // --- 2. どちらも取得できない期間があれば、スクレイピングで補完 ---
+        if ((!d_total && !d_genre) || (!w_total && !w_genre) || (!m_total && !m_genre) || (!q_total && !q_genre)) {
+          const scraped = scrapeBestRankings(ncode, novel.genre, pageCache);
+          
+          // スクレイピングで見つかった値を「総合」として扱って代入（比較用）
+          if (scraped.daily) d_total = scraped.daily;
+          if (scraped.weekly) w_total = scraped.weekly;
+          if (scraped.monthly) m_total = scraped.monthly;
+          if (scraped.quarter) q_total = scraped.quarter;
+        }
+
+        // --- 3. 順位決定ロジック（良い方を採用） ---
+        const getBestRank = (r1, r2) => {
+          if (r1 && r2) return Math.min(r1, r2); 
+          return r1 || r2 || "圏外";
+        };
+
+        let d_rank = getBestRank(d_total, d_genre);
+        let w_rank = getBestRank(w_total, w_genre);
+        let m_rank = getBestRank(m_total, m_genre);
+        let q_rank = getBestRank(q_total, q_genre);
+
+        // ログ記録（重複防止付き）
+        appendLogIfUnique(logSheet, todayFull, ncode, [todayFull, novel.general_firstup, userId, userName, novel.title, genreName, ncode, pt, d_rank, w_rank, "記録外", m_rank, "記録外", "記録外", q_rank]);
+
+        // 作家別シート更新
+        updateWriterSheet(ss, userName, todayShort, ncode, novel, genreName, pt, [
+          { name: "日間", val: d_rank, color: "#d9ead3" },
+          { name: "週間", val: w_rank, color: "#fce5cd" },
+          { name: "月間", val: m_rank, color: "#cfe2f3" },
+          { name: "四半期", val: q_rank, color: "#fff2cc" }
+        ]);
+      }
+      Utilities.sleep(1000);
+    } catch (e) { 
+      console.log(userName + "エラー: " + e.message); 
+    }
+  });
+}
+
+// ヘルパー関数群（ここは前回と同じですが、一応全て載せます）
+
+function appendLogIfUnique(sheet, dateStr, ncode, rowData) {
+  try {
+    const lastRow = sheet.getLastRow();
+    if (lastRow > 1) {
+      const checkRows = Math.min(30, lastRow - 1);
+      const data = sheet.getRange(lastRow - checkRows + 1, 1, checkRows, 7).getValues();
+      for (let i = 0; i < data.length; i++) {
+        const logDate = Utilities.formatDate(new Date(data[i][0]), "JST", "yyyy-MM-dd");
+        if (logDate === dateStr && data[i][6] === ncode) {
+          return;
+        }
+      }
+    }
+    sheet.appendRow(rowData);
+  } catch(e) {
+    sheet.appendRow(rowData);
+  }
+}
+
+function updateWriterSheet(ss, userName, todayShort, ncode, novel, genreName, pt, periods) {
+  periods.forEach(p => {
+    const sheetName = p.name + "_" + userName;
+    let sheet = ss.getSheetByName(sheetName) || ss.insertSheet(sheetName);
+    
+    let lastCol = sheet.getLastColumn();
+    let lastRow = sheet.getLastRow();
+
+    if (lastRow === 0 || sheet.getRange(1, 1).getValue() !== "投稿日") {
+      sheet.clear();
+      sheet.appendRow(["投稿日", "作品タイトル", "カテゴリー", "最高位", todayShort]);
+      sheet.getRange("A1:E1").setBackground(p.color).setFontWeight("bold").setHorizontalAlignment("center");
+      sheet.setFrozenRows(1);
+      sheet.setFrozenColumns(4);
+      lastCol = 5;
+      lastRow = 1;
+    }
+    
+    let header = sheet.getRange(1, 1, 1, lastCol).getDisplayValues()[0];
+    let dateCol = 0;
+    for (let col = 0; col < header.length; col++) {
+      if (String(header[col]).trim() === todayShort) {
+        dateCol = col + 1;
+        break;
+      }
+    }
+    if (dateCol === 0) {
+      dateCol = lastCol + 1;
+      sheet.getRange(1, dateCol).setValue(todayShort).setBackground(p.color).setFontWeight("bold").setHorizontalAlignment("center");
+    }
+
+    let targetRow = -1;
+    const titleLink = "=HYPERLINK(\"https://ncode.syosetu.com/" + ncode.toLowerCase() + "/\", \"" + novel.title + "\")";
+    const targetNcode = ncode.toLowerCase();
+
+    if (lastRow > 1) {
+      let formulas = sheet.getRange(2, 2, lastRow - 1, 1).getFormulas();
+      for (let j = 0; j < formulas.length; j++) {
+        if (formulas[j][0] && formulas[j][0].toLowerCase().indexOf(targetNcode) !== -1) {
+          targetRow = j + 2;
+          if (formulas[j][0] !== titleLink) {
+            sheet.getRange(targetRow, 2).setValue(titleLink);
+          }
+          break;
+        }
+      }
+    }
+
+    if (targetRow === -1) {
+      const startRow = sheet.getLastRow() + 1;
+      sheet.appendRow([novel.general_firstup, titleLink, genreName, "", ""]);
+      sheet.appendRow(["", "", "", "", ""]);
+      sheet.getRange(startRow, 1, 2, 1).merge().setVerticalAlignment("middle");
+      sheet.getRange(startRow, 2, 2, 1).merge().setVerticalAlignment("middle");
+      sheet.getRange(startRow, 3, 2, 1).merge().setVerticalAlignment("middle");
+      sheet.getRange(startRow, 4, 2, 1).merge().setVerticalAlignment("middle");
+      targetRow = startRow;
+    }
+
+    sheet.getRange(targetRow, dateCol).setValue(p.val).setHorizontalAlignment("center");
+    sheet.getRange(targetRow + 1, dateCol).setValue(pt + "pt").setFontSize(8).setFontColor("#666666").setHorizontalAlignment("center");
+
+    if (p.val !== "圏外") {
+      let currentBest = sheet.getRange(targetRow, 4).getValue();
+      let valNum = parseInt(String(p.val).replace(/[^0-9]/g, ''));
+      let bestNum = parseInt(String(currentBest).replace(/[^0-9]/g, ''));
+      if (!currentBest || (!isNaN(valNum) && (isNaN(bestNum) || valNum < bestNum))) {
+        sheet.getRange(targetRow, 4).setValue(p.val);
+      }
+    }
+  });
+}
+
+function scrapeBestRankings(ncode, genre, cache) {
+  const result = { daily: null, weekly: null, monthly: null, quarter: null };
+  const ncodeStr = ncode.toLowerCase();
+
+  const topUrl = "https://yomou.syosetu.com/rank/top/";
+  let topHtml = getHtml(topUrl, cache);
+  
+  if (topHtml) {
+    const cards = topHtml.split('class="c-card');
+    for (let i = 0; i < cards.length; i++) {
+      const card = cards[i];
+      if (card.toLowerCase().indexOf(ncodeStr) !== -1) {
+        let type = null;
+        if (card.indexOf('日間ランキング') !== -1) type = 'daily';
+        else if (card.indexOf('週間ランキング') !== -1) type = 'weekly';
+        else if (card.indexOf('月間ランキング') !== -1) type = 'monthly';
+        else if (card.indexOf('四半期ランキング') !== -1) type = 'quarter';
+        
+        const rankMatch = card.match(/class="c-rank-place__num">(\d+)</);
+        if (type && rankMatch) {
+          result[type] = parseInt(rankMatch[1]);
+        }
+      }
+    }
+  }
+
+  ['daily', 'weekly', 'monthly', 'quarter'].forEach(period => {
+    if (result[period]) return;
+
+    const urlsToCheck = [];
+    urlsToCheck.push(`https://yomou.syosetu.com/rank/list/type/${period}_total/`);
+    if (genre) {
+      urlsToCheck.push(`https://yomou.syosetu.com/rank/genrelist/type/${period}_${genre}/`);
+    }
+
+    for (let i = 0; i < urlsToCheck.length; i++) {
+      if (result[period]) break;
+      const url = urlsToCheck[i];
+      let html = getHtml(url, cache);
+      
+      if (html && html.toLowerCase().indexOf(ncodeStr) !== -1) {
+        let items = [];
+        if (html.indexOf('p-ranktop-item__item') !== -1) {
+          items = html.split('p-ranktop-item__item');
+        } else if (html.indexOf('ranking_list') !== -1) {
+          items = html.split('ranking_list');
+        } else {
+          items = html.split('c-card');
+        }
+
+        for (let k = 0; k < items.length; k++) {
+          if (items[k].toLowerCase().indexOf(ncodeStr) !== -1) {
+             const match1 = items[k].match(/class="c-rank-place__num"[^>]*>(\d+)</);
+             const match2 = items[k].match(/class="rank_h"[^>]*>(\d+)位/);
+             if (match1) result[period] = parseInt(match1[1]);
+             else if (match2) result[period] = parseInt(match2[1]);
+             break;
+          }
+        }
+      }
+    }
+  });
+
+  return result;
+}
+
+function getHtml(url, cache) {
+  if (cache[url]) return cache[url];
+  try {
+    const response = UrlFetchApp.fetch(url, {
+      muteHttpExceptions: true,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; GoogleAppsScript)' }
+    });
+    if (response.getResponseCode() === 200) {
+      const html = response.getContentText();
+      cache[url] = html;
+      Utilities.sleep(1000); 
+      return html;
+    }
+  } catch (e) {
+    console.log("Fetch Error: " + url);
+  }
+  return null;
+}

@@ -11,8 +11,13 @@ from janome.tokenizer import Tokenizer
 # Windows対応: UTF-8出力設定
 sys.stdout.reconfigure(encoding='utf-8')
 
-# 設定
-INPUT_FILE = r"c:\Users\natak\Documents\Novel\ひより01_元 copy.txt"
+# 引数チェック
+if len(sys.argv) < 2:
+    print("使い方: python check_reading_offline.py <テキストファイル>")
+    print("例: python check_reading_offline.py novels/小説.txt")
+    sys.exit(1)
+
+INPUT_FILE = sys.argv[1]
 
 # =============================================================================
 # 初期化

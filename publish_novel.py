@@ -235,6 +235,9 @@ def apply_replacements(text, corrections):
     
     result_text = text
     for word, reading in sorted_corrections:
+        # 値が文字列でない場合はスキップ（AI生成辞書の不正値対策）
+        if not isinstance(reading, str) or not isinstance(word, str):
+            continue
         # 単純置換。漢字のまわりの文脈を壊さない
         result_text = result_text.replace(word, reading)
             
@@ -530,8 +533,9 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
     mp3_dir.mkdir(parents=True, exist_ok=True)
     
     input_basename = Path(input_file).stem
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    output_filename = f"{input_basename}_{timestamp}.mp3"
+    short_title = input_basename[:15]  # ファイル名短縮（先頭15文字）
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M")
+    output_filename = f"{short_title}_{timestamp}.mp3"
     output_path = mp3_dir / output_filename
     
     # 音声生成
@@ -606,6 +610,23 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
 # RSSフィード生成
 # =============================================================================
 
+def _make_short_name(date_prefix, title, max_chars=5):
+    """統一命名用のショート名を生成: {日付}_{作品名先頭N文字}"""
+    short_title = title[:max_chars]
+    return f"{date_prefix}_{short_title}"
+
+
+def _find_cover_image(date_prefix):
+    """png/ フォルダから日付プレフィックスに一致するカバー画像を探す"""
+    png_dir = Path(__file__).parent / "png"
+    if not png_dir.exists():
+        return None
+    for f in png_dir.iterdir():
+        if f.suffix.lower() in ('.png', '.jpg', '.jpeg') and f.name.startswith(date_prefix + '_'):
+            return f
+    return None
+
+
 def generate_rss_feed(config, mp3_path, episode_title, episode_description, episode_number=None):
     """RSSフィード (feed.xml) を生成・更新"""
     
@@ -618,13 +639,34 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
     feed_path = feed_dir / output_config.get('feed_filename', 'feed.xml')
     episodes_json = feed_dir / "episodes.json"
     
-    # MP3をフィードディレクトリにコピー
-    mp3_filename = Path(mp3_path).name
-    feed_mp3_path = feed_dir / mp3_filename
+    # 統一命名: {日付}_{作品名先頭5文字}
+    mp3_stem = Path(mp3_path).stem
+    date_prefix = re.match(r'^(\d{8})_', mp3_stem)
+    if date_prefix:
+        date_prefix = date_prefix.group(1)
+    else:
+        date_prefix = datetime.now().strftime("%Y%m%d")
+    
+    short_name = _make_short_name(date_prefix, episode_title)
+    
+    # MP3をフィードディレクトリにコピー（統一名）
+    feed_mp3_name = f"{short_name}_preview.mp3"
+    feed_mp3_path = feed_dir / feed_mp3_name
     
     import shutil
     shutil.copy2(mp3_path, feed_mp3_path)
-    print(f"📁 MP3をfeedディレクトリにコピー: {mp3_filename}")
+    print(f"📁 MP3をfeedディレクトリにコピー: {feed_mp3_name}")
+    
+    # カバー画像を png/ から検索してコピー（統一名）
+    cover_image_name = None
+    cover_source = _find_cover_image(date_prefix)
+    if cover_source:
+        cover_image_name = f"{short_name}{cover_source.suffix}"
+        cover_dest = feed_dir / cover_image_name
+        shutil.copy2(str(cover_source), str(cover_dest))
+        print(f"🖼️ カバー画像コピー: {cover_image_name}")
+    else:
+        print(f"⚠️ カバー画像なし（png/ に {date_prefix}_ で始まる画像がありません）")
     
     # MP3の情報取得
     mp3_size = os.path.getsize(feed_mp3_path)
@@ -638,23 +680,49 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
         with open(episodes_json, 'r', encoding='utf-8') as f:
             episodes = json.load(f)
     
-    # 新しいエピソード番号
+    # 同一タイトルの既存エピソードを上書き（重複防止）
+    old_episodes = [ep for ep in episodes if ep['title'] == episode_title]
+    for old_ep in old_episodes:
+        # 古いMP3ファイルを削除
+        old_mp3 = feed_dir / old_ep.get('filename', '')
+        if old_mp3.exists():
+            try:
+                old_mp3.unlink()
+                print(f"🗑️ 古いMP3を削除: {old_ep['filename']}")
+            except Exception:
+                pass
+        # 古いカバー画像も削除
+        old_cover = old_ep.get('cover_image', '')
+        if old_cover:
+            old_cover_path = feed_dir / old_cover
+            if old_cover_path.exists():
+                try:
+                    old_cover_path.unlink()
+                    print(f"🗑️ 古いカバー画像を削除: {old_cover}")
+                except Exception:
+                    pass
+    episodes = [ep for ep in episodes if ep['title'] != episode_title]
+    
+    # エピソード番号
     if episode_number is None:
-        last_num = 0
-        if episodes:
-            last_num = max(e.get('number', 0) for e in episodes)
-        episode_number = last_num + 1
+        # 上書き時は既存の番号を維持、新規時は最大+1
+        if old_episodes:
+            episode_number = old_episodes[0].get('number', len(episodes) + 1)
+        else:
+            last_num = max((e.get('number', 0) for e in episodes), default=0)
+            episode_number = last_num + 1
     
     new_episode = {
         "number": episode_number,
         "title": episode_title,
         "description": episode_description,
-        "filename": mp3_filename,
+        "filename": feed_mp3_name,
+        "cover_image": cover_image_name,
         "size": mp3_size,
         "duration": mp3_duration,
         "duration_formatted": format_duration_itunes(mp3_duration),
         "pub_date": datetime.now().strftime("%a, %d %b %Y %H:%M:%S +0900"),
-        "guid": hashlib.md5(f"{episode_title}_{mp3_filename}".encode()).hexdigest(),
+        "guid": hashlib.md5(f"{episode_title}_{feed_mp3_name}".encode()).hexdigest(),
     }
     
     episodes.append(new_episode)
@@ -679,6 +747,11 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
     # XML生成
     items_xml = ""
     for ep in reversed(episodes):  # 新しい順
+        # エピソード個別のカバー画像
+        ep_image_xml = ""
+        if ep.get('cover_image'):
+            ep_image_xml = f'\n      <itunes:image href="{base_url}/{urllib.parse.quote(ep["cover_image"])}"/>'
+        
         items_xml += f"""
     <item>
       <title>{_xml_escape(ep['title'])}</title>
@@ -688,7 +761,7 @@ def generate_rss_feed(config, mp3_path, episode_title, episode_description, epis
       <pubDate>{ep['pub_date']}</pubDate>
       <itunes:duration>{ep['duration_formatted']}</itunes:duration>
       <itunes:episode>{ep['number']}</itunes:episode>
-      <itunes:explicit>false</itunes:explicit>
+      <itunes:explicit>false</itunes:explicit>{ep_image_xml}
     </item>"""
     
     cover_xml = ""
@@ -777,6 +850,19 @@ def process_file(args, input_file, config, overrides=None):
         config['reading_corrections'].update(extra_corr)
         print(f"📖 作品別の読み替え辞書（{len(extra_corr)}件）を適用しました")
 
+    # STEP 0.5: 台本生成（--script指定時）
+    if getattr(args, 'script', False) and not args.feed_only:
+        print("\n" + "─" * 60)
+        print(f"📝 STEP 0.5: ルビ付き台本を生成: {Path(input_file).name}")
+        print("─" * 60)
+        try:
+            from create_script import create_script
+            create_script(str(input_file))
+        except ImportError:
+            print("⚠️ create_script.py が見つかりません（スキップ）")
+        except Exception as e:
+            print(f"⚠️ 台本生成に失敗しました（原文で続行）: {e}")
+
     # STEP 1: MP3生成
     mp3_path = None
     if not args.feed_only:
@@ -798,10 +884,38 @@ def process_file(args, input_file, config, overrides=None):
              print("❌ --feed-only の場合は --mp3 で既存MP3ファイルを指定してください")
              return False
 
-    # STEP 2: RSSフィード生成
-    if not args.mp3_only:
+    # STEP 2: 1分プレビュー版の作成
+    preview_path = None
+    if not getattr(args, 'mp3_only', False) and not getattr(args, 'test', False):
         print("\n" + "─" * 60)
-        print("📡 STEP 2: RSSフィード生成")
+        print("✂️ STEP 2: 1分プレビュー版を作成")
+        print("─" * 60)
+        try:
+            from pydub import AudioSegment
+            audio = AudioSegment.from_mp3(mp3_path)
+            preview_duration_ms = 60 * 1000  # 60秒
+            if len(audio) > preview_duration_ms:
+                preview = audio[:preview_duration_ms]
+                # フェードアウト（3秒）
+                preview = preview.fade_out(3000)
+            else:
+                preview = audio
+                print("ℹ️ 元の音声が60秒以下のため、そのまま使用します")
+            
+            preview_filename = Path(mp3_path).stem + "_preview.mp3"
+            preview_path = str(Path(mp3_path).parent / preview_filename)
+            preview.export(preview_path, format='mp3')
+            
+            preview_sec = len(preview) / 1000
+            print(f"✅ プレビュー版を作成: {preview_filename} ({preview_sec:.0f}秒)")
+        except Exception as e:
+            print(f"⚠️ プレビュー版の作成に失敗しました: {e}")
+            preview_path = mp3_path  # 失敗時はフルverを使用
+
+    # STEP 3: RSSフィード生成（1分版をfeedに登録）
+    if not getattr(args, 'mp3_only', False) and not getattr(args, 'test', False):
+        print("\n" + "─" * 60)
+        print("📡 STEP 3: RSSフィード生成")
         print("─" * 60)
         
         # エピソードタイトル
@@ -810,21 +924,29 @@ def process_file(args, input_file, config, overrides=None):
              if args.title:
                  episode_title = args.title
              else:
-                 episode_title = Path(input_file).stem
+                 # ファイル名から日付プレフィックスを除去してタイトルに
+                 raw_stem = Path(input_file).stem
+                 episode_title = re.sub(r'^\d{8}_', '', raw_stem)
         
         # エピソード説明
         episode_desc = args.description if args.description else f"「{episode_title}」の音声版をお届けします。"
         
+        # feedに登録するのは1分プレビュー版
+        feed_mp3 = preview_path if preview_path else mp3_path
+        
         generate_rss_feed(
             config,
-            mp3_path,
+            feed_mp3,
             episode_title=episode_title,
             episode_description=episode_desc,
             episode_number=args.episode,
         )
+        
+        print(f"\n📁 フルver MP3: {mp3_path}")
+        print(f"📡 feed登録: 1分プレビュー版")
     
     # ファイル移動
-    if not args.feed_only and input_file:
+    if not args.feed_only and input_file and not getattr(args, 'test', False):
          move_to_completed(input_file)
     
     return True
@@ -845,12 +967,22 @@ def main():
     parser.add_argument("--feed-only", action="store_true", help="RSSフィード生成のみ")
     parser.add_argument("--mp3", help="既存MP3ファイルのパス")
     parser.add_argument("--no-push", action="store_true", help="GitHubへのプッシュをスキップ")
+    parser.add_argument("--test", action="store_true", help="テストモード（MP3生成のみ、push/移動なし）")
+    parser.add_argument("--script", action="store_true", help="台本（ルビ付き）を自動生成してから音声化")
     
     args = parser.parse_args()
     
+    # テストモード: mp3_only + no_push を自動設定
+    if args.test:
+        args.mp3_only = True
+        args.no_push = True
+    
     # バナー表示
     print("\n" + "=" * 60)
-    print("📚 音声小説 → Spotify 自動配信ツール")
+    if args.test:
+        print("📚 音声小説 → Spotify 自動配信ツール [🧪 テストモード]")
+    else:
+        print("📚 音声小説 → Spotify 自動配信ツール")
     print("=" * 60)
     
     # 設定読み込み
@@ -872,10 +1004,6 @@ def main():
         # novelsフォルダ内のtxtファイルを検索
         novels_dir = Path(__file__).parent / "novels"
         if novels_dir.exists():
-            print(f"DEBUG: Search dir: {novels_dir.absolute()}")
-            # Print all files in dir for debug
-            for f in novels_dir.iterdir():
-                print(f"DEBUG: Found file: {f.name}")
             target_files = list(novels_dir.glob("*.txt"))
             # completedフォルダは除外（globは再帰しないのでOK）
             print(f"🔎 novelsフォルダ内の小説を検索中... {len(target_files)}件ヒット")
