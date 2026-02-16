@@ -418,7 +418,7 @@ def main():
     parser.add_argument("--voice", default="fable", help="TTS音声タイプ (デフォルト: fable)")
     parser.add_argument("--model", default="tts-1", help="TTSモデル (デフォルト: tts-1)")
     parser.add_argument("--chunk-size", type=int, default=4000, help="チャンク最大サイズ (デフォルト: 4000)")
-    parser.add_argument("--engine", choices=["whisper", "gemini"], default="gemini", help="検出エンジン (デフォルト: gemini)")
+    parser.add_argument("--engine", choices=["whisper", "gemini"], default="whisper", help="検出エンジン (デフォルト: whisper)")
     parser.add_argument("--gemini-model", default=None, help="Geminiモデル名 (デフォルト: 自動選択)")
     
     args = parser.parse_args()
