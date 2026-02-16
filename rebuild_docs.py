@@ -251,14 +251,14 @@ def rebuild_docs(dry_run=False):
         print("\n  🧪 ドライランのためここで終了します")
         return
     
-    # 4. docs/ をクリーンアップ（MP3とエピソード画像を削除、cover.pngは残す）
+    # 4. docs/ をクリーンアップ（MP3とエピソード画像を削除、cover.jpgは残す）
     print("\n" + "─" * 70)
     print("  🧹 docs/ をクリーンアップ中...")
     print("─" * 70)
     
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
     
-    keep_files = {'cover.png', 'novel to mp3 - ひより.csv'}  # 残すファイル
+    keep_files = {'cover.jpg', 'novel to mp3 - ひより.csv'}  # 残すファイル
     
     for f in DOCS_DIR.iterdir():
         if f.name in keep_files:
@@ -365,7 +365,7 @@ def generate_feed_xml(config, episodes_data):
     channel_subcategory = podcast_config.get('subcategory', 'Books')
     channel_website = podcast_config.get('website', '')
     channel_email = podcast_config.get('email', '')
-    cover_art = podcast_config.get('cover_art', 'cover.png')
+    cover_art = podcast_config.get('cover_art', 'cover.jpg')
     base_url = podcast_config.get('base_url', 'YOUR_HOSTING_URL_HERE')
     feed_filename = output_config.get('feed_filename', 'feed.xml')
     

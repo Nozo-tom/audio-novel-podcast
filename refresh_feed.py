@@ -36,7 +36,7 @@ def refresh_feed():
     channel_lang = "ja"
     channel_email = "n.ataka.tom@gmail.com"
     base_url = "https://Nozo-tom.github.io/audio-novel-podcast"
-    cover_art = "cover.png"
+    cover_art = "cover.jpg"
 
     items_xml = ""
     for ep in reversed(episodes):

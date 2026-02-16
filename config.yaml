@@ -14,7 +14,7 @@ podcast:
   language: "ja"
   category: "Arts"
   subcategory: "Books"
-  cover_art: "cover.png"                 # カバーアート画像ファイル名（feedフォルダに配置）
+  cover_art: "cover.jpg"                 # カバーアート画像ファイル名（feedフォルダに配置）
   website: ""                            # 任意: ウェブサイトURL
   
   # 🔑 重要: ホスティング先のベースURL
