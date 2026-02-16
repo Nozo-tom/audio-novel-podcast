@@ -514,6 +514,18 @@ def generate_mp3(input_file, config, voice_override=None, model_override=None):
         print("📝 読み替え辞書を適用中...")
         novel_text = apply_replacements(novel_text, corrections)
     
+    # 朗読用テキスト調整の適用
+    adjustments = config.get('_adjustments', [])
+    if adjustments:
+        applied = 0
+        for adj in adjustments:
+            if isinstance(adj, dict) and 'from' in adj and 'to' in adj:
+                if adj['from'] in novel_text:
+                    novel_text = novel_text.replace(adj['from'], adj['to'], 1)
+                    applied += 1
+        if applied > 0:
+            print(f"🎙️ 朗読用テキスト調整: {applied}件適用")
+    
     # テキスト分割
     chunks = split_text_into_chunks(novel_text, max_chunk_size)
     total_chars = sum(len(chunk) for chunk in chunks)
@@ -849,6 +861,12 @@ def process_file(args, input_file, config, overrides=None):
         if 'reading_corrections' not in config: config['reading_corrections'] = {}
         config['reading_corrections'].update(extra_corr)
         print(f"📖 作品別の読み替え辞書（{len(extra_corr)}件）を適用しました")
+
+    # 朗読用テキスト調整の適用
+    adjustments = overrides.get('adjustments', [])
+    if adjustments:
+        config['_adjustments'] = adjustments
+        print(f"🎙️ 朗読用テキスト調整（{len(adjustments)}件）を適用します")
 
     # STEP 0.5: 台本生成（--script指定時）
     if getattr(args, 'script', False) and not args.feed_only:

@@ -15,6 +15,64 @@ if sys.platform == "win32":
     sys.stdout.reconfigure(encoding='utf-8')
 
 
+def get_narration_adjustments(client, text_chunk, model="gpt-4o-mini"):
+    """テキストを朗読しやすく調整する提案をAIに生成させる"""
+    prompt = f"""
+以下の小説テキストを「朗読（TTS音声合成）」用に読みやすく調整してください。
+
+【調整ルール】
+1. 長い文（40文字以上で句読点がない）には「、」を挿入して自然な間を作る
+2. 場面転換や沈黙の一拍が必要な箇所に「……」を追加
+3. 台詞の後の地の文に間を入れる（例: 」の後に「……」を追加）
+4. 感情が高まる箇所や重要な場面転換に「、」で間を演出
+5. 息継ぎしやすいように長文を分割
+
+【絶対にやらないこと】
+- 文の内容を変更する
+- 単語を別の単語に置き換える
+- 文を削除する、追加する
+- 漢字をひらがなにする（それは辞書の仕事）
+
+【出力形式】
+JSON配列で返してください。調整不要なら空配列 [] を返してください。
+```json
+{{"adjustments": [
+  {{"from": "調整前のテキスト（前後含む20〜60文字）", "to": "調整後のテキスト"}}
+]}}
+```
+fromは原文に完全一致する部分を20〜60文字で指定してください。
+一意に特定できる長さにしてください。
+
+【調整例】
+- {{"from": "彼女は振り返って笑った", "to": "彼女は、振り返って笑った"}}
+- {{"from": "沈黙が流れた彼は口を開いた", "to": "沈黙が流れた。……彼は、口を開いた"}}
+- {{"from": "走り出した息を切らしながら", "to": "走り出した。息を切らしながら"}}
+
+テキスト:
+---
+{text_chunk}
+---
+"""
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=[{"role": "system", "content": "あなたはプロのナレーターです。小説の朗読を聴きやすくするための句読点・間の調整を提案してください。内容は一切変えません。"},
+                      {"role": "user", "content": prompt}],
+            response_format={ "type": "json_object" }
+        )
+        result = json.loads(response.choices[0].message.content)
+        # JSONオブジェクトの中に配列がある場合に対応
+        if isinstance(result, dict):
+            for key in result:
+                if isinstance(result[key], list):
+                    return result[key]
+            return []
+        return result if isinstance(result, list) else []
+    except Exception as e:
+        print(f"⚠️ 朗読調整の生成中にエラー: {e}")
+        return []
+
+
 def get_text_analysis_from_ai(client, text_chunk, model="gpt-4o-mini"):
     """テキストチャンクから読み間違いそうな単語をAIに抽出させる"""
     prompt = f"""
@@ -179,6 +237,36 @@ def generate_corrections(text_path, mode="deep"):
         print(f"   🧹 {removed}件の不要エントリを除外 → {len(filtered)}件に絞り込み")
     all_corrections = filtered
     
+    # ===== 朗読用テキスト調整の生成 =====
+    print("   🎙️ 朗読用テキスト調整を生成中...")
+    all_adjustments = []
+    # テキスト全体を3000文字ずつサンプリングして調整提案を取得
+    adj_chunk_size = 3000
+    adj_samples = []
+    for start in range(0, min(len(full_text), 9000), adj_chunk_size):
+        adj_samples.append(full_text[start:start + adj_chunk_size])
+    
+    for i, sample in enumerate(adj_samples):
+        print(f"   ⏳ 朗読調整 {i+1}/{len(adj_samples)} を解析中...")
+        adj_result = get_narration_adjustments(client, sample)
+        # バリデーション: fromが原文に存在するもののみ採用
+        for adj in adj_result:
+            if isinstance(adj, dict) and 'from' in adj and 'to' in adj:
+                if adj['from'] in full_text and adj['from'] != adj['to']:
+                    all_adjustments.append(adj)
+        print(f"      → {len(adj_result)}件提案")
+    
+    # 重複除去
+    seen = set()
+    unique_adjustments = []
+    for adj in all_adjustments:
+        key = adj['from']
+        if key not in seen:
+            seen.add(key)
+            unique_adjustments.append(adj)
+    all_adjustments = unique_adjustments
+    print(f"   ✅ 朗読調整: {len(all_adjustments)}件")
+
     # ===== 性別判定 → 音声モデル推奨 =====
     print("   🎭 主人公の性別を判定中...")
     try:
@@ -225,6 +313,8 @@ def generate_corrections(text_path, mode="deep"):
         "original_date": filename_stem.split('_')[0] if '_' in filename_stem else "",
         "corrections": all_corrections
     }
+    if all_adjustments:
+        yaml_data["adjustments"] = all_adjustments
     
     yaml_path = Path(text_path).with_suffix('.yaml')
     with open(yaml_path, 'w', encoding='utf-8') as f:
@@ -232,6 +322,7 @@ def generate_corrections(text_path, mode="deep"):
     
     print(f"\n✨ 読み替え辞書が完成しました: {yaml_path}")
     print(f"   登録単語数: {len(all_corrections)}件")
+    print(f"   朗読調整: {len(all_adjustments)}件")
     print(f"   推奨音声: {suggested_voice} ({gender_label}主人公)")
     print(f"   💡 音声を変更したい場合は YAML の voice を書き換えてください")
 
