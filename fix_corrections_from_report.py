@@ -34,30 +34,55 @@ SCRIPT_DIR = Path(__file__).parent
 
 
 def parse_report(report_content):
-    """レポートから差異情報を構造化して抽出"""
+    """レポートから差異情報を構造化して抽出（Whisper/Gemini両対応）"""
     differences = []
     current = {}
+    
+    # レポート形式を自動判定
+    is_gemini = '読み間違い' in report_content or '音声:' in report_content or '備考:' in report_content
     
     for line in report_content.split('\n'):
         line = line.strip()
         
-        # 差異ヘッダ: 【1】チャンク 3 (一致率: 45.2%)
-        match = re.match(r'【(\d+)】.*一致率:\s*([\d.]+)%', line)
-        if match:
-            if current:
-                differences.append(current)
-            current = {
-                'num': int(match.group(1)),
-                'ratio': float(match.group(2)),
-                'original': '',
-                'transcribed': ''
-            }
-            continue
-        
-        if line.startswith('原文:'):
-            current['original'] = line[len('原文:'):].strip()
-        elif line.startswith('認識:'):
-            current['transcribed'] = line[len('認識:'):].strip()
+        if is_gemini:
+            # Gemini形式: 【1】読み間違い
+            match = re.match(r'【(\d+)】(.+)', line)
+            if match:
+                if current and current.get('original'):
+                    differences.append(current)
+                current = {
+                    'num': int(match.group(1)),
+                    'type': match.group(2).strip(),
+                    'original': '',
+                    'transcribed': '',
+                    'note': ''
+                }
+                continue
+            
+            if line.startswith('原文:'):
+                current['original'] = line[len('原文:'):].strip()
+            elif line.startswith('音声:'):
+                current['transcribed'] = line[len('音声:'):].strip()
+            elif line.startswith('備考:'):
+                current['note'] = line[len('備考:'):].strip()
+        else:
+            # Whisper形式: 【1】チャンク 3 (一致率: 45.2%)
+            match = re.match(r'【(\d+)】.*一致率:\s*([\d.]+)%', line)
+            if match:
+                if current and current.get('original'):
+                    differences.append(current)
+                current = {
+                    'num': int(match.group(1)),
+                    'ratio': float(match.group(2)),
+                    'original': '',
+                    'transcribed': ''
+                }
+                continue
+            
+            if line.startswith('原文:'):
+                current['original'] = line[len('原文:'):].strip()
+            elif line.startswith('認識:'):
+                current['transcribed'] = line[len('認識:'):].strip()
     
     if current and current.get('original'):
         differences.append(current)
@@ -70,23 +95,43 @@ def filter_meaningful_differences(differences):
     filtered = []
     
     for diff in differences:
-        ratio = diff['ratio']
-        orig = diff['original']
-        trans = diff['transcribed']
+        orig = diff.get('original', '')
+        trans = diff.get('transcribed', '')
+        note = diff.get('note', '')
         
-        # 一致率が98%以上は無視（ほぼ一致）
-        if ratio >= 98:
-            continue
-        
-        # 一致率が20%未満はチャンクずれの可能性が高いので除外
-        if ratio < 20:
-            continue
-        
-        # 原文が短すぎるものは除外
-        if len(orig) < 3:
-            continue
-        
-        filtered.append(diff)
+        # Gemini形式: ratioがない場合はnoteベースでフィルタ
+        if 'ratio' not in diff:
+            # 備考で「ではなく」パターンから実際に異なる読みを検出
+            # 例: 「炎」の読み方が「ほのお」ではなく「えん」と読まれている
+            if note:
+                # 「Xではなく X」= 同じ読み → 偽検出を除外
+                match_same = re.search(r'「(.+?)」ではなく「(.+?)」', note)
+                if match_same:
+                    expected = match_same.group(1)
+                    actual = match_same.group(2)
+                    if expected == actual:
+                        continue  # 同じ読み = 偽検出
+                    # 真の読み間違いは通す
+                    diff['expected_reading'] = expected
+                    diff['actual_reading'] = actual
+            
+            # 原文が短すぎるものは除外
+            if len(orig) < 3:
+                continue
+            
+            filtered.append(diff)
+        else:
+            # Whisper形式: ratioベースでフィルタ
+            ratio = diff['ratio']
+            
+            if ratio >= 98:
+                continue
+            if ratio < 20:
+                continue
+            if len(orig) < 3:
+                continue
+            
+            filtered.append(diff)
     
     return filtered
 
@@ -239,9 +284,19 @@ def sync_from_report(yaml_path, report_path=None, text_path=None):
     for diff in meaningful:
         entry = {
             "原文": diff['original'],
-            "Whisper認識結果": diff['transcribed'],
-            "一致率": f"{diff['ratio']:.1f}%"
         }
+        # Gemini形式の場合
+        if 'note' in diff:
+            entry["音声"] = diff.get('transcribed', '')
+            entry["備考"] = diff.get('note', '')
+            if diff.get('expected_reading'):
+                entry["正しい読み"] = diff['expected_reading']
+                entry["実際の読み"] = diff['actual_reading']
+        else:
+            # Whisper形式の場合
+            entry["Whisper認識結果"] = diff.get('transcribed', '')
+            if diff.get('ratio') is not None:
+                entry["一致率"] = f"{diff['ratio']:.1f}%"
         # 原文テキストがあれば文脈を追加
         if original_text:
             context = find_context_in_text(original_text, diff['original'])
